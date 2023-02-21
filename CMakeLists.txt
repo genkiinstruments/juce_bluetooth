@@ -7,7 +7,7 @@ include(cmake/fetch_from_git.cmake)
 
 option(JUCE_SOURCE_DIR "JUCE source directory, if external" "")
 
-if (DEFINED JUCE_SOURCE_DIR)
+if (JUCE_SOURCE_DIR)
     add_subdirectory(${JUCE_SOURCE_DIR} ${CMAKE_CURRENT_BINARY_DIR}/juce)
 else()
     include (cmake/fetch_from_git.cmake)

@@ -31,16 +31,6 @@ using namespace juce;
 namespace genki {
 
 //======================================================================================================================
-inline juce::ValueTree getAncestor(const juce::ValueTree& vt, const juce::Identifier& ancestorType)
-{
-    const auto& parent = vt.getParent();
-
-    return !parent.isValid() ? juce::ValueTree{} :
-           (parent.hasType(ancestorType) ? parent :
-            getAncestor(vt.getParent(), ancestorType));
-}
-
-//======================================================================================================================
 struct LambdaTimer : public juce::Timer
 {
     LambdaTimer(std::function<void()> cb, int intervalMs) : callback(std::move(cb)) { startTimer(intervalMs); }

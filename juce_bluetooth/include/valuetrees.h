@@ -4,6 +4,17 @@
 
 namespace genki {
 
+//======================================================================================================================
+inline juce::ValueTree getAncestor(const juce::ValueTree& vt, const juce::Identifier& ancestorType)
+{
+    const auto& parent = vt.getParent();
+
+    return !parent.isValid() ? juce::ValueTree{} :
+           (parent.hasType(ancestorType) ? parent :
+            getAncestor(vt.getParent(), ancestorType));
+}
+
+//======================================================================================================================
 struct ValueTreeListener : juce::ValueTree::Listener
 {
     explicit ValueTreeListener(juce::ValueTree vt)

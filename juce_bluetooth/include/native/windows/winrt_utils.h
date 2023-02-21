@@ -2,14 +2,11 @@
 
 #include <juce_core/juce_core.h>
 
-#include "winrt_bug_workaround.h"
-
 #include <winrt/base.h>
-#include <winrt/Windows.Foundation.Collections.h>
-#include <winrt/Windows.Devices.Enumeration.h>
-#include <winrt/Windows.Devices.Radios.h>
-#include <winrt/Windows.Devices.Bluetooth.h>
-#include <winrt/Windows.Devices.Bluetooth.GenericAttributeProfile.h>
+#include <winrt/windows.foundation.collections.h>
+#include <winrt/windows.devices.enumeration.h>
+#include <winrt/windows.devices.radios.h>
+#include <winrt/windows.devices.bluetooth.genericattributeprofile.h>
 
 using namespace winrt::Windows::Devices::Enumeration;
 using namespace winrt::Windows::Devices::Radios;

@@ -2,18 +2,14 @@
 
 #if JUCE_WINDOWS
 
-#include "WinRTBugWorkaround.h"
-
 #include <combaseapi.h>
 #include <winrt/base.h>
-#include <winrt/Windows.Foundation.h>
-#include <winrt/Windows.Foundation.Collections.h>
-#include <winrt/Windows.Storage.Streams.h>
-#include <winrt/Windows.Devices.Radios.h>
-#include <winrt/Windows.Devices.Bluetooth.h>
-#include <winrt/Windows.Devices.Bluetooth.Advertisement.h>
-#include <winrt/Windows.Devices.Bluetooth.GenericAttributeProfile.h>
-#include <winrt/Windows.Devices.Enumeration.h>
+#include <winrt/windows.foundation.h>
+#include <winrt/windows.storage.streams.h>
+#include <winrt/windows.devices.radios.h>
+#include <winrt/windows.devices.bluetooth.advertisement.h>
+#include <winrt/windows.devices.bluetooth.genericattributeprofile.h>
+#include <winrt/windows.devices.enumeration.h>
 
 using namespace winrt;
 using namespace Windows::Foundation;
@@ -27,13 +23,21 @@ using namespace Windows::Devices::Bluetooth::GenericAttributeProfile;
 #include <gsl/span_ext>
 #include <fmt/ranges.h>
 
-#include "genki_bluetooth.h"
-#include "WinRTUtils.h"
-#include "Util.h"
-#include "ValueTreeUtils.h"
-#include "Logging.h"
+#include "juce_bluetooth.h"
+#include "include/native/windows/winrt_utils.h"
+#include "include/format.h"
 
 using namespace juce;
+
+//======================================================================================================================
+#ifndef GENKI_BLUETOOTH_LOG_ENABLED
+#define GENKI_BLUETOOTH_LOG_ENABLED 0
+#endif
+
+#define LOG(text) JUCE_BLOCK_WITH_FORCED_SEMICOLON(if (GENKI_BLUETOOTH_LOG_ENABLED) DBG((text)); )
+
+//======================================================================================================================
+namespace genki {
 
 struct WinBleDevice
 {
@@ -170,7 +174,7 @@ BleAdapter::Impl::Impl(ValueTree vt)
     {
         const auto is_connected = winrt_util::get_property_or(info.Properties(), L"System.Devices.Aep.IsConnected", false);
 
-        Logging::logMessage(fmt::format("Device added: {} - {}, {}", info.Name(), info.Id(), is_connected ? "connected" : "not connected"));
+        LOG(fmt::format("Device added: {} - {}, {}", info.Name(), info.Id(), is_connected ? "connected" : "not connected"));
 
         if (is_connected)
         {
@@ -178,7 +182,7 @@ BleAdapter::Impl::Impl(ValueTree vt)
             {
                 if (status != AsyncStatus::Completed)
                 {
-                    Logging::logMessage(fmt::format("Bluetooth: Error getting device: {} - please try un-pairing through Windows settings and restarting the computer",
+                    LOG(fmt::format("Bluetooth: Error getting device: {} - please try un-pairing through Windows settings and restarting the computer",
                             winrt::to_string(name), winrt_util::to_string(status)));
 
                     return;
@@ -199,7 +203,7 @@ BleAdapter::Impl::Impl(ValueTree vt)
 
     deviceWatcher.Removed([this](const DeviceWatcher&, const DeviceInformationUpdate& info)
     {
-        Logging::logMessage(fmt::format("Device removed: {}", info.Id()));
+        LOG(fmt::format("Device removed: {}", info.Id()));
 
         BluetoothLEDevice::FromIdAsync(info.Id()).Completed([this](const auto& sender, [[maybe_unused]] AsyncStatus status)
         {
@@ -220,14 +224,14 @@ BleAdapter::Impl::Impl(ValueTree vt)
     });
 
     // Step 1: Check if there is any Bluetooth adapter available in the system
-    Logging::logMessage("Querying Bluetooth adapters");
+    LOG("Querying Bluetooth adapters");
     DeviceInformation::FindAllAsync(BluetoothAdapter::GetDeviceSelector()).Completed(
             [this](const IAsyncOperation<DeviceInformationCollection>& sender, AsyncStatus status)
             {
                 //======================================================================================================
                 if (status != AsyncStatus::Completed || sender.GetResults().Size() == 0)
                 {
-                    Logging::logMessage(status != AsyncStatus::Completed
+                    LOG(status != AsyncStatus::Completed
                         ? fmt::format("Query failed: {}", winrt_util::to_string(status))
                         : fmt::format("No Bluetooth adapter found", winrt_util::to_string(status))
                     );
@@ -238,7 +242,7 @@ BleAdapter::Impl::Impl(ValueTree vt)
 
                 //======================================================================================================
                 // Step 2: Get access to the default Bluetooth adapter
-                Logging::logMessage("Requesting access to default Bluetooth adapter");
+                LOG("Requesting access to default Bluetooth adapter");
                 BluetoothAdapter::GetDefaultAsync().Completed(
                         [this](const IAsyncOperation<BluetoothAdapter>& sender, AsyncStatus status)
                         {
@@ -256,7 +260,7 @@ BleAdapter::Impl::Impl(ValueTree vt)
 
                             if (!is_le_supported)
                             {
-                                Logging::logMessage(fmt::format("Adapter ({}) does not support Bluetooth LE", addr_str));
+                                LOG(fmt::format("Adapter ({}) does not support Bluetooth LE", addr_str));
                                 valueTree.setProperty(ID::status, (int) AdapterStatus::Disabled, nullptr);
 
                                 return;
@@ -264,7 +268,7 @@ BleAdapter::Impl::Impl(ValueTree vt)
 
                             //==========================================================================================
                             // Step 3: Access the radio object associated with the adapter
-                            Logging::logMessage(fmt::format("Requesting access to radio for adapter: {}, LE is supported", addr_str));
+                            LOG(fmt::format("Requesting access to radio for adapter: {}, LE is supported", addr_str));
 
                             adapter.GetRadioAsync().Completed(
                                     [this](const IAsyncOperation<Radio>& rad, AsyncStatus status)
@@ -272,7 +276,7 @@ BleAdapter::Impl::Impl(ValueTree vt)
                                         //==============================================================================
                                         if (status != AsyncStatus::Completed)
                                         {
-                                            Logging::logMessage("Failed to get access to radio");
+                                            LOG("Failed to get access to radio");
                                             valueTree.setProperty(ID::status, (int) AdapterStatus::Disabled, nullptr);
                                             return;
                                         }
@@ -306,7 +310,7 @@ BleAdapter::Impl::~Impl() = default;
 
 void BleAdapter::Impl::startScan(std::vector<guid> guids)
 {
-    Logging::logMessage("Bluetooth: Starting scan...");
+    LOG("Bluetooth: Starting scan...");
 
     // Note: Using BluetoothLEAdvertisementFilter only gives you the advertising packets that contain the
     //       service UUID. Since the UUID almost fills the packet, the device name often comes in a separate
@@ -373,9 +377,9 @@ void BleAdapter::Impl::startScan(std::vector<guid> guids)
         }
 
         if (system_clock::now() - start > timeout)
-            Logging::logMessage("Bluetooth: Timed out trying to start scan");
+            LOG("Bluetooth: Timed out trying to start scan");
 
-        Logging::logMessage("Scan started successfully");
+        LOG("Scan started successfully");
     }
 
     //==============================================================================================================
@@ -435,7 +439,7 @@ void BleAdapter::Impl::connect(const ValueTree& deviceTree, BleDevice::Callbacks
                 {
                     vt.setProperty(ID::is_connected, d.ConnectionStatus() == BluetoothConnectionStatus::Connected, nullptr);
 
-                    Logging::logMessage(fmt::format("Connection status changed: {} ({}), {}",
+                    LOG(fmt::format("Connection status changed: {} ({}), {}",
                             winrt::to_string(d.Name()),
                             winrt_util::to_mac_string(d.BluetoothAddress()),
                             d.ConnectionStatus() == BluetoothConnectionStatus::Connected));
@@ -489,7 +493,7 @@ void BleAdapter::Impl::processPendingWrites()
         const auto&[vt, data, type] = device.writes.front();
         jassert(vt.hasType(ID::CHARACTERISTIC));
 
-        const auto addr = get_address(Util::getAncestor(vt, ID::BLUETOOTH_DEVICE));
+        const auto addr = get_address(getAncestor(vt, ID::BLUETOOTH_DEVICE));
         const auto uuid = vt.getProperty(ID::uuid).toString();
         const auto guid = winrt_util::uuid_to_guid(uuid);
 
@@ -511,7 +515,7 @@ void BleAdapter::Impl::processPendingWrites()
                     {
                         if (status != AsyncStatus::Completed)
                         {
-                            Logging::logMessage(fmt::format("Bluetooth: WriteValueWithResultAsync completed with error: {}", winrt_util::to_string(status)));
+                            LOG(fmt::format("Bluetooth: WriteValueWithResultAsync completed with error: {}", winrt_util::to_string(status)));
                             return;
                         }
 
@@ -520,10 +524,10 @@ void BleAdapter::Impl::processPendingWrites()
 
                         if (comm_status != GattCommunicationStatus::Success)
                         {
-                            Logging::logMessage(fmt::format("Bluetooth: Error writing characteristic: {}", winrt_util::to_string(comm_status)));
+                            LOG(fmt::format("Bluetooth: Error writing characteristic: {}", winrt_util::to_string(comm_status)));
 
                             if (comm_status == GattCommunicationStatus::ProtocolError)
-                                Logging::logMessage(fmt::format("Protocol error: {}", static_cast<int>(res.ProtocolError().Value())));
+                                LOG(fmt::format("Protocol error: {}", static_cast<int>(res.ProtocolError().Value())));
 
                             return;
                         }
@@ -566,7 +570,7 @@ void BleAdapter::Impl::write(const ValueTree& charact, gsl::span<const gsl::byte
 
     const ScopedLock dLock(devicesLock);
 
-    if (const auto it = devices.find(get_address(Util::getAncestor(charact, ID::BLUETOOTH_DEVICE))); it != devices.end())
+    if (const auto it = devices.find(get_address(getAncestor(charact, ID::BLUETOOTH_DEVICE))); it != devices.end())
     {
         const auto type = withResponse ? GattWriteOption::WriteWithResponse : GattWriteOption::WriteWithoutResponse;
 
@@ -592,7 +596,7 @@ void BleAdapter::Impl::discoverServices(const ValueTree& deviceTree)
                 {
                     if (status != AsyncStatus::Completed)
                     {
-                        Logging::logMessage(fmt::format("Bluetooth: GetGattServicesAsync failed: {}", winrt_util::to_string(status)));
+                        LOG(fmt::format("Bluetooth: GetGattServicesAsync failed: {}", winrt_util::to_string(status)));
                         return;
                     }
 
@@ -630,7 +634,7 @@ void BleAdapter::Impl::discoverCharacteristics(const ValueTree& vt)
             {
                 if (status != AsyncStatus::Completed)
                 {
-                    Logging::logMessage(fmt::format("Bluetooth: RequestAccessAsync failed: {}", winrt_util::to_string(status)));
+                    LOG(fmt::format("Bluetooth: RequestAccessAsync failed: {}", winrt_util::to_string(status)));
                     return;
                 }
 
@@ -639,7 +643,7 @@ void BleAdapter::Impl::discoverCharacteristics(const ValueTree& vt)
                 {
                     if (status != AsyncStatus::Completed)
                     {
-                        Logging::logMessage(fmt::format("Bluetooth: GetCharacteristicsAsync failed: {}", winrt_util::to_string(status)));
+                        LOG(fmt::format("Bluetooth: GetCharacteristicsAsync failed: {}", winrt_util::to_string(status)));
                         return;
                     }
 
@@ -648,10 +652,10 @@ void BleAdapter::Impl::discoverCharacteristics(const ValueTree& vt)
 
                     if (res.Status() != GattCommunicationStatus::Success)
                     {
-                        Logging::logMessage(fmt::format("Bluetooth: Error getting characteristics: {}", winrt_util::to_string(res.Status())));
+                        LOG(fmt::format("Bluetooth: Error getting characteristics: {}", winrt_util::to_string(res.Status())));
 
                         if (res.Status() == GattCommunicationStatus::ProtocolError)
-                            Logging::logMessage(fmt::format("Protocol error: {}", static_cast<int>(res.ProtocolError().Value())));
+                            LOG(fmt::format("Protocol error: {}", static_cast<int>(res.ProtocolError().Value())));
 
                         return;
                     }
@@ -685,7 +689,7 @@ void BleAdapter::Impl::enableNotifications(const ValueTree& charact, bool should
 {
     jassert(charact.hasType(ID::CHARACTERISTIC));
 
-    const auto address = get_address(Util::getAncestor(charact, ID::BLUETOOTH_DEVICE));
+    const auto address = get_address(getAncestor(charact, ID::BLUETOOTH_DEVICE));
 
     const ScopedLock lock(devicesLock);
 
@@ -711,10 +715,10 @@ void BleAdapter::Impl::enableNotifications(const ValueTree& charact, bool should
 
                         if (comm_status != GattCommunicationStatus::Success)
                         {
-                            Logging::logMessage(fmt::format("Error enabling notifications: {}", winrt_util::to_string(comm_status)));
+                            LOG(fmt::format("Error enabling notifications: {}", winrt_util::to_string(comm_status)));
 
                             if (comm_status == GattCommunicationStatus::ProtocolError)
-                                Logging::logMessage(fmt::format("Protocol error: {}", static_cast<int>(res.ProtocolError().Value())));
+                                LOG(fmt::format("Protocol error: {}", static_cast<int>(res.ProtocolError().Value())));
 
                             return;
                         }
@@ -805,5 +809,7 @@ void BleDevice::write(BleAdapter& adapter, const Uuid& charactUuid, gsl::span<co
             if (const auto c = s.getChildWithProperty(ID::uuid, charactUuid.toDashedString()); c.isValid())
                 adapter.impl->write(c, data, withResponse);
 }
+
+} // namespace genki
 
 #endif // JUCE_WINDOWS
