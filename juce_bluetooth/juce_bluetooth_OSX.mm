@@ -15,12 +15,12 @@
 
 #include "juce_bluetooth.h"
 #include "include/native/macos/corebluetooth_utils.h"
-#include "include/native/macos/retained.h"
-#include "include/format.h"
-#include "include/ranges.h"
+#include "native/macos/retained.h"
+#include "format.h"
+#include "ranges.h"
 
-using namespace corebluetooth_utils;
 using namespace juce;
+using namespace genki::corebluetooth_utils;
 
 #ifndef GENKI_BLUETOOTH_LOG_ENABLED
 #define GENKI_BLUETOOTH_LOG_ENABLED 0

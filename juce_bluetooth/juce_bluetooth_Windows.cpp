@@ -24,8 +24,8 @@ using namespace Windows::Devices::Bluetooth::GenericAttributeProfile;
 #include <fmt/ranges.h>
 
 #include "juce_bluetooth.h"
-#include "include/native/windows/winrt_utils.h"
-#include "include/format.h"
+#include "native/windows/winrt_utils.h"
+#include "format.h"
 
 using namespace juce;
 

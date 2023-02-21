@@ -12,12 +12,12 @@
   version:            0.1.0
   name:               JUCE Bluetooth LE
   description:        Bluetooth LE classes for JUCE
-  minimumCppStandard: 17
 
   dependencies: juce_core, juce_data_structures
   OSXFrameworks: CoreBluetooth, Foundation
   mingwLibs: WindowsApp.lib, cppwinrt
-
+  minimumCppStandard: 17
+  searchpaths: include
 
  END_JUCE_MODULE_DECLARATION
 
