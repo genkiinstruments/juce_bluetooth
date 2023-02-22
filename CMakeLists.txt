@@ -15,4 +15,8 @@ target_include_directories(${module_name} INTERFACE ${CMAKE_CURRENT_SOURCE_DIR})
 
 add_library(genki::bluetooth ALIAS ${module_name})
 
-add_subdirectory(examples)
+option(JUCE_BLUETOOTH_BUILD_EXAMPLES OFF "Enable juce_bluetooth example builds")
+
+if (JUCE_BLUETOOTH_BUILD_EXAMPLES)
+    add_subdirectory(examples)
+endif()
