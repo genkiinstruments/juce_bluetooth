@@ -1,7 +1,7 @@
-juce_add_console_app(juce_ble_example_scan)
-target_sources(juce_ble_example_scan PRIVATE main.cpp)
+juce_add_console_app(juce_ble_example_hrs)
+target_sources(juce_ble_example_hrs PRIVATE main.cpp)
 
-target_compile_definitions(juce_ble_example_scan
+target_compile_definitions(juce_ble_example_hrs
         PRIVATE
         JUCE_MODAL_LOOPS_PERMITTED=1
         )
@@ -10,7 +10,7 @@ fetch_from_git(gsl https://github.com/microsoft/GSL.git GIT_TAG main)
 fetch_from_git(fmt https://github.com/fmtlib/fmt.git)
 fetch_from_git(range-v3 https://github.com/ericniebler/range-v3.git)
 
-target_link_libraries(juce_ble_example_scan
+target_link_libraries(juce_ble_example_hrs
         PRIVATE
         genki::bluetooth
 
