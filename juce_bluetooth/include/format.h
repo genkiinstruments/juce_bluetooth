@@ -7,6 +7,7 @@
 #pragma warning(push, 0)
 #else
 #pragma GCC diagnostic push
+#pragma clang diagnostic ignored "-Wextra-semi"
 #pragma GCC diagnostic ignored "-Wswitch-enum"
 #endif
 #include <fmt/ranges.h>
@@ -50,7 +51,7 @@ struct fmt::formatter<juce::Identifier>
 };
 
 template<>
-struct fmt::formatter<gsl::byte>
+struct fmt::formatter<const gsl::byte>
 {
     constexpr auto parse(fmt::format_parse_context& ctx) -> decltype(ctx.begin()) { return ctx.begin(); }
 
