@@ -1,6 +1,6 @@
-# JUCE Bluetooth modules
+# JUCE Bluetooth LE module
 
-This repo contains a JUCE module for interacting with Bluetooth LE devices on macOS and Windows.
+JUCE module for interacting with Bluetooth LE devices on macOS and Windows.
 
 ## Dependencies
 
