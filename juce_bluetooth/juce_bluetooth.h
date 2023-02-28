@@ -14,7 +14,7 @@
   description:        Bluetooth LE classes for JUCE
 
   dependencies: juce_core, juce_data_structures
-  OSXFrameworks: CoreBluetooth, Foundation
+  OSXFrameworks: CoreBluetooth Foundation
   mingwLibs: WindowsApp.lib, cppwinrt
   minimumCppStandard: 17
   searchpaths: include
