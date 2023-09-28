@@ -15,9 +15,9 @@
 
 #include "juce_bluetooth.h"
 #include "include/native/macos/corebluetooth_utils.h"
-#include "native/macos/retained.h"
-#include "format.h"
-#include "ranges.h"
+#include "include/native/macos/retained.h"
+#include "include/format.h"
+#include "include/ranges.h"
 
 using namespace juce;
 using namespace genki::corebluetooth_utils;
