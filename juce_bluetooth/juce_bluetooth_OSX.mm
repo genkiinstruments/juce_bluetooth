@@ -6,6 +6,7 @@
 #pragma clang diagnostic ignored "-Wdirect-ivar-access"
 #pragma clang diagnostic ignored "-Wunguarded-availability-new"
 #pragma clang diagnostic ignored "-Wextra-semi"
+#pragma clang diagnostic ignored "-Wdeprecated"
 
 #include <range/v3/view.hpp>
 #include <gsl/span_ext>
