@@ -9,7 +9,7 @@
 
   ID:                 juce_bluetooth
   vendor:             Genki
-  version:            0.1.0
+  version:            1.0.0
   name:               JUCE Bluetooth LE
   description:        Bluetooth LE classes for JUCE
 
