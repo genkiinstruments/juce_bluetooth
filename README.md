@@ -4,15 +4,17 @@ JUCE module for interacting with Bluetooth LE devices on macOS and Windows.
 
 ## Dependencies
 
-The project depends on a few third-party libraries
+The project depends on a few third-party libraries.
 
+* [JUCE](https://github.com/juce-framework/JUCE) *
 * [GSL](https://github.com/microsoft/GSL)
 * [fmt](https://github.com/fmtlib/fmt)
 * [range-v3](https://github.com/ericniebler/range-v3)
 
-These libraries are expected to be available and linked properly as part of your appliation build step.
+The CMake build script uses [CPM](https://github.com/cpm-cmake/CPM.cmake) to fetch these dependencies. 
+If you use a different build system, you will have to make sure these libraries are available and linked properly as part of your appliation build step.
 
-[JUCE](https://github.com/juce-framework/JUCE) is expected to be already present in your project. 
+\* JUCE will only be fetched if `juce_bluetooth` is loaded as a top-level project. If you're consuming it in your project, JUCE will surely already be available.
 
 The project assumes a CMake-based environment.
 
