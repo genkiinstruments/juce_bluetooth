@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.15)
 set(CMAKE_CXX_STANDARD 17)
 set(module_name juce_bluetooth)
 
-project(${module_name} VERSION 0.1.0)
+project(${module_name} VERSION 1.0.0)
 include(cmake/CPM.cmake)
 
 if (${CMAKE_SOURCE_DIR} STREQUAL ${CMAKE_CURRENT_SOURCE_DIR})
