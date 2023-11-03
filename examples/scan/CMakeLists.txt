@@ -6,10 +6,6 @@ target_compile_definitions(juce_ble_example_scan
         JUCE_MODAL_LOOPS_PERMITTED=1
         )
 
-fetch_from_git(gsl https://github.com/microsoft/GSL.git GIT_TAG main)
-fetch_from_git(fmt https://github.com/fmtlib/fmt.git)
-fetch_from_git(range-v3 https://github.com/ericniebler/range-v3.git)
-
 target_link_libraries(juce_ble_example_scan
         PRIVATE
         genki::bluetooth

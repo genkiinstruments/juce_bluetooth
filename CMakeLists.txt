@@ -3,11 +3,15 @@ set(CMAKE_CXX_STANDARD 17)
 set(module_name juce_bluetooth)
 
 project(${module_name} VERSION 0.1.0)
-include(cmake/fetch_from_git.cmake)
+include(cmake/CPM.cmake)
 
 if (${CMAKE_SOURCE_DIR} STREQUAL ${CMAKE_CURRENT_SOURCE_DIR})
-    fetch_from_git(JUCE https://github.com/juce-framework/JUCE.git)
+    CPMAddPackage("gh:juce-framework/JUCE#7.0.7")
 endif()
+
+CPMAddPackage("gh:microsoft/GSL#v4.0.0")
+CPMAddPackage("gh:fmtlib/fmt#10.1.1")
+CPMAddPackage("gh:ericniebler/range-v3#0.12.0")
 
 juce_add_module(${module_name})
 
