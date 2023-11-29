@@ -19,7 +19,7 @@ int main()
     std::optional<genki::BleDevice> device;
 
     const genki::BleDevice::Callbacks ble_callbacks{
-            .valueChanged = [](const juce::Uuid&, gsl::span<const gsl::byte> data)
+            .valueChanged = [](const juce::Uuid&, [[maybe_unused]] gsl::span<const gsl::byte> data)
             {
                 // Step 6: Notifications from the device will be received here
                 DBG(fmt::format("HRS notification: {}", data));

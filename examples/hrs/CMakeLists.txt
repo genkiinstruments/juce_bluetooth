@@ -1,14 +1,18 @@
-juce_add_console_app(juce_ble_example_hrs)
-target_sources(juce_ble_example_hrs PRIVATE main.cpp)
+cmake_minimum_required(VERSION 3.17)
 
-target_compile_definitions(juce_ble_example_hrs
+project(juce_ble_example_hrs VERSION 1.0.0)
+
+juce_add_console_app(${PROJECT_NAME})
+target_sources(${PROJECT_NAME} PRIVATE main.cpp)
+
+target_compile_definitions(${PROJECT_NAME}
         PRIVATE
         JUCE_MODAL_LOOPS_PERMITTED=1
 	JUCE_USE_CURL=0
 	JUCE_WEB_BROWSER=0
         )
 
-target_link_libraries(juce_ble_example_hrs
+target_link_libraries(${PROJECT_NAME}
         PRIVATE
         genki::bluetooth
 

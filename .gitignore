@@ -1,4 +1,6 @@
 .DS_Store
 .idea
-cmake-build*
+**/cmake-build*
+**/build*
+.cpm_modules
 

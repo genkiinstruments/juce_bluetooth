@@ -18,6 +18,16 @@ If you use a different build system, you will have to make sure these libraries 
 
 The project assumes a CMake-based environment.
 
+## Installing
+
+In order to install the module in your system
+```shell
+cmake -B build -DCMAKE_INSTALL_PREFIX=/usr/local
+sudo cmake --build build --target install
+```
+
+Then, in your project `juce_bluetooth` may be found using `find_package`. See the [using_find_package example](./examples/using_find_package).
+
 ## Quickstart
 
 At the heart of your application you'll instantiate a `BleAdapter` to manage discovery and connections.
