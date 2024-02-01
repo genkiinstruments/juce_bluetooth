@@ -6,4 +6,4 @@ find_package(range-v3 REQUIRED)
 juce_add_module(@CMAKE_INSTALL_PREFIX@/@CMAKE_INSTALL_INCLUDEDIR@/juce_bluetooth)
 add_library(genki::bluetooth ALIAS juce_bluetooth)
 
-target_link_libraries(juce_bluetooth INTERFACE GSL fmt range-v3)
+target_link_libraries(juce_bluetooth INTERFACE Microsoft.GSL::GSL fmt::fmt range-v3::range-v3)
