@@ -1,7 +1,6 @@
-find_package(JUCE CONFIG REQUIRED)
-find_package(GSL REQUIRED)
-find_package(fmt REQUIRED)
-find_package(range-v3 REQUIRED)
+foreach(pkg JUCE fmt range-v3 Microsoft.GSL)
+  find_package(${pkg} REQUIRED CONFIG)
+endforeach()
 
 juce_add_module(@CMAKE_INSTALL_PREFIX@/@CMAKE_INSTALL_INCLUDEDIR@/juce_bluetooth)
 add_library(genki::bluetooth ALIAS juce_bluetooth)
