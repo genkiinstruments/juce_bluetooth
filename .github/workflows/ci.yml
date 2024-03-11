@@ -1,0 +1,30 @@
+name: Build examples on macOS and Windows
+on:
+  push:
+    branches:
+      - main
+      - development
+  pull_request:
+    branches:
+      - main
+      - development
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [mac-self-hosted, windows-self-hosted]
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Build and test
+        env:
+          CPM_SOURCE_CACHE: ~/.cpm
+        run: |
+          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DJUCE_BLUETOOTH_BUILD_EXAMPLES=ON
+          cmake --build build
