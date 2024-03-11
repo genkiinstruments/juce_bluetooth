@@ -17,8 +17,10 @@ jobs:
         os: [mac-self-hosted, windows-self-hosted]
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
 
       - name: Build and test
         env:
