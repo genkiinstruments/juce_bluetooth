@@ -2,6 +2,9 @@
 
 #if JUCE_WINDOWS
 
+#pragma warning( push )
+#pragma warning( disable : 4390) // empty controlled statement (; after LOG)
+
 #include <combaseapi.h>
 #include <winrt/base.h>
 #include <winrt/windows.foundation.h>
@@ -811,5 +814,7 @@ void BleDevice::write(BleAdapter& adapter, const Uuid& charactUuid, gsl::span<co
 }
 
 } // namespace genki
+
+#pragma warning( pop )
 
 #endif // JUCE_WINDOWS
