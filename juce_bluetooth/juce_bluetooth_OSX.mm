@@ -350,6 +350,20 @@ didDisconnectPeripheral:(nonnull CBPeripheral*)peripheral
     }
 }
 
+- (void)pollPduSizes {
+    const ScopedLock lock(peripheralsLock);
+
+    for (const auto& [_, p]: peripherals)
+    {
+        auto& [peripheral, __] = p;
+
+        const auto addr_str = get_address_string([peripheral identifier]);
+
+        if (auto ch = valueTree.getChildWithProperty(ID::address, addr_str); ch.isValid())
+            ch.setProperty(ID::max_pdu_size, static_cast<int>([self getMaximumValueLengthForPeripheral:peripheral]), nullptr);
+    }
+}
+
 @end
 
 
@@ -486,18 +500,17 @@ struct BleAdapter::Impl : private ValueTree::Listener
 
     void valueTreeChildRemoved(ValueTree&, ValueTree&, int) override {}
 
-    OSXAdapter* adapter = nullptr;
     ValueTree valueTree;
-
-    std::unique_ptr<LambdaTimer> connectedDevicePoll;
+    OSXAdapter* adapter = nullptr;
+    std::unique_ptr<LambdaTimer> connectedDevicePoll, pduPoll;
 };
 
-BleAdapter::Impl::Impl(ValueTree
-                       vt) : valueTree(std::move(vt))
+BleAdapter::Impl::Impl(ValueTree vt)
+        : valueTree(std::move(vt)),
+          adapter([[OSXAdapter alloc] initWithValueTree:valueTree]),
+          pduPoll(std::make_unique<LambdaTimer>([this] { [adapter pollPduSizes]; }, 500))
 {
     valueTree.addListener(this);
-
-    adapter = [[OSXAdapter alloc] initWithValueTree:valueTree];
     [adapter setup];
 }
 
