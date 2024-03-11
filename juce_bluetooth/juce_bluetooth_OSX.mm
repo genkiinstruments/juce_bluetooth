@@ -109,7 +109,14 @@ struct LambdaTimer : public juce::Timer
     }
     else
     {
-        valueTree.appendChild({ID::BLUETOOTH_DEVICE, {{ID::name, name}, {ID::address, addr_str}, {ID::is_connected, is_connected}, {ID::last_seen, now}, {ID::max_pdu_size, max_pdu}}}, nullptr);
+        valueTree.appendChild({
+                ID::BLUETOOTH_DEVICE, {
+                        {ID::name, name},
+                        {ID::address, addr_str},
+                        {ID::is_connected, is_connected},
+                        {ID::last_seen, now},
+                        {ID::max_pdu_size, max_pdu}
+                }}, nullptr);
     }
 }
 
@@ -117,14 +124,10 @@ struct LambdaTimer : public juce::Timer
     LOG(fmt::format("Bluetooth: Failed to connect: {}", [error.localizedDescription UTF8String]));
 }
 
-- (void) centralManager:(nonnull
-CBCentralManager*)central
-didDisconnectPeripheral:
-        (nonnull
-CBPeripheral*)peripheral
-                  error:
-                          (nullable
-                  NSError*)error {
+- (void) centralManager:(nonnull CBCentralManager*)central
+didDisconnectPeripheral:(nonnull CBPeripheral*)peripheral
+                  error:(nullable NSError*)error {
+
     juce::ignoreUnused(central, error);
 
     const auto addr_str = get_address_string([peripheral identifier]);
@@ -356,8 +359,7 @@ namespace genki {
 struct BleAdapter::Impl : private ValueTree::Listener
 {
     explicit Impl(ValueTree);
-    ~Impl()
-    override;
+    ~Impl() override;
 
     void write(const ValueTree& charact, gsl::span<const gsl::byte> data, bool withResponse) const
     {
@@ -398,8 +400,7 @@ struct BleAdapter::Impl : private ValueTree::Listener
     }
 
     //==================================================================================================================
-    void valueTreeChildAdded(ValueTree& parent, ValueTree& child)
-    override
+    void valueTreeChildAdded(ValueTree& parent, ValueTree& child) override
     {
         if (child.hasType(ID::DISCOVER_SERVICES))
         {
@@ -483,8 +484,7 @@ struct BleAdapter::Impl : private ValueTree::Listener
         }
     }
 
-    void valueTreeChildRemoved(ValueTree&, ValueTree&, int)
-    override {}
+    void valueTreeChildRemoved(ValueTree&, ValueTree&, int) override {}
 
     OSXAdapter* adapter = nullptr;
     ValueTree valueTree;
