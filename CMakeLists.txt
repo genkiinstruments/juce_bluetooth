@@ -6,7 +6,7 @@ set(CMAKE_CXX_STANDARD 20)
 include(cmake/CPM.cmake)
 
 if (${CMAKE_SOURCE_DIR} STREQUAL ${CMAKE_CURRENT_SOURCE_DIR})
-    CPMAddPackage("gh:juce-framework/JUCE#7.0.7")
+    CPMAddPackage("gh:juce-framework/JUCE#8.0.3")
 endif ()
 
 CPMAddPackage("gh:microsoft/GSL#v4.0.0")
