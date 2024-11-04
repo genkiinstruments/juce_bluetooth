@@ -46,4 +46,5 @@ enum class AdapterStatus
     Disabled,
     PoweredOff,
     PoweredOn,
+    Unauthorized,
 };
