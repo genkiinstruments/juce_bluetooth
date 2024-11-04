@@ -163,9 +163,12 @@ didDisconnectPeripheral:(nonnull CBPeripheral*)peripheral
 
     const auto status = [self.centralManager state];
 
+    LOG(fmt::format("Bluetooth: CentralManager status updated: {}", static_cast<int>(status)));
+
     valueTree.setProperty(ID::status, static_cast<int>(
             status == CBManagerStatePoweredOff ? AdapterStatus::PoweredOff :
             status == CBManagerStatePoweredOn ? AdapterStatus::PoweredOn :
+            status == CBManagerStateUnauthorized ? AdapterStatus::Unauthorized :
             AdapterStatus::Disabled), nullptr);
 }
 
