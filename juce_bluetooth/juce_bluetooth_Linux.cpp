@@ -46,8 +46,11 @@ struct BleAdapter::Impl : private ValueTree::Listener {
                     const auto uuid_str_ret = gattlib_uuid_to_string(&services[i].uuid, uuid_str.data(), uuid_str.size());
                     jassert(uuid_str_ret == GATTLIB_SUCCESS);
 
-                    // TODO: attr_handle_start/attr_handle_end
-                    device.appendChild({ID::SERVICE, {{ID::uuid, juce::String(uuid_str.data())}}, {}}, nullptr);
+                    device.appendChild({ID::SERVICE, {
+                        {ID::uuid, juce::String(uuid_str.data())},
+                        {ID::handle_start, services[i].attr_handle_start},
+                        {ID::handle_end, services[i].attr_handle_end},
+                    }, {}}, nullptr);
                 }
 
                 free(services); // WATCH OUT
@@ -73,14 +76,26 @@ struct BleAdapter::Impl : private ValueTree::Listener {
                 const auto ret = gattlib_discover_char(connection, &characteristics, &characteristics_count);
                 jassert(ret == GATTLIB_SUCCESS);
 
+                const int handle_start = service.getProperty(ID::handle_start);
+                const int handle_end = service.getProperty(ID::handle_end);
+
                 for (int i = 0; i < characteristics_count; i++) {
-                    std::array<char, MAX_LEN_UUID_STR + 1> uuid_str{};
+                    const auto& [handle, properties, value_handle, uuid] = characteristics[i];
 
-                    const auto uuid_str_ret = gattlib_uuid_to_string(&characteristics[i].uuid, uuid_str.data(), uuid_str.size());
-                    jassert(uuid_str_ret == GATTLIB_SUCCESS);
+                    if (handle >= handle_start && handle <= handle_end)
+                    {
+                        std::array<char, MAX_LEN_UUID_STR + 1> uuid_str{};
 
-                    // TODO: properties/handle/value_handle
-                    service.appendChild({ID::CHARACTERISTIC, {{ID::uuid, juce::String(uuid_str.data())}}, {}}, nullptr);
+                        const auto uuid_str_ret = gattlib_uuid_to_string(&uuid, uuid_str.data(), uuid_str.size());
+                        jassert(uuid_str_ret == GATTLIB_SUCCESS);
+
+                        service.appendChild({ID::CHARACTERISTIC, {
+                            {ID::uuid, juce::String(uuid_str.data())},
+                            {ID::properties, properties}, // TODO
+                            {ID::handle, handle},
+                            {ID::value_handle, value_handle},
+                        }, {}}, nullptr);
+                    }
                 }
 
                 free(characteristics); // WATCH OUT
