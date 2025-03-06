@@ -4,17 +4,23 @@
 #include <gsl/byte>
 
 #if _WIN32
-#pragma warning(push, 0)
-#else
-#pragma GCC diagnostic push
-#pragma clang diagnostic ignored "-Wextra-semi"
-#pragma GCC diagnostic ignored "-Wswitch-enum"
+    #pragma warning(push, 0)
+#elif defined(__clang__)
+    #pragma clang diagnostic push
+    #pragma clang diagnostic ignored "-Wextra-semi"
+#elif defined(__GNUC__)
+    #pragma GCC diagnostic push
+    #pragma GCC diagnostic ignored "-Wswitch-enum"
 #endif
+
 #include <fmt/ranges.h>
+
 #if _WIN32
-#pragma warning(pop)
-#else
-#pragma GCC diagnostic pop
+    #pragma warning(pop)
+#elif defined(__clang__)
+    #pragma clang diagnostic pop
+#elif defined(__GNUC__)
+    #pragma GCC diagnostic pop
 #endif
 
 template<>
