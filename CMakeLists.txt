@@ -5,8 +5,22 @@ set(CMAKE_CXX_STANDARD 20)
 
 include(cmake/CPM.cmake)
 
+add_compile_definitions(JUCE_LINUX_USE_GLIB_MAINLOOP=1)
+
 if (${CMAKE_SOURCE_DIR} STREQUAL ${CMAKE_CURRENT_SOURCE_DIR})
-    CPMAddPackage("gh:juce-framework/JUCE#8.0.3")
+    # NOTE: CPM calculates a hash based on the arguments passed to CPMAddPackage(...)
+    #       We need to pass in absolute paths to the the patches to avoid downloading multiple copies of JUCE...
+    get_filename_component(cpm_abs "${CPM_SOURCE_CACHE}" ABSOLUTE)
+    file(GLOB patch_files "${CMAKE_CURRENT_SOURCE_DIR}/cmake/*.patch")
+    file(COPY ${patch_files} DESTINATION ${cpm_abs}/patches)
+
+    CPMAddPackage(NAME JUCE
+        GIT_REPOSITORY https://github.com/juce-framework/JUCE.git
+        GIT_TAG 8.0.3
+        PATCH_COMMAND git apply ${cpm_abs}/patches/juce_Messaging_linux.cpp.patch
+        UPDATE_DISCONNECTED 1
+        OPTIONS "JUCE_BUILD_EXTRAS OFF" "JUCE_BUILD_EXAMPLES OFF" "JUCE_ENABLE_MODULE_SOURCE_GROUPS ON"
+)
 endif ()
 
 CPMAddPackage("gh:microsoft/GSL#v4.0.0")
@@ -14,6 +28,11 @@ CPMAddPackage("gh:fmtlib/fmt#10.1.1")
 CPMAddPackage("gh:ericniebler/range-v3#0.12.0")
 
 include(GNUInstallDirs)
+
+if (UNIX AND NOT APPLE)
+    find_package(PkgConfig REQUIRED)
+    pkg_check_modules(GATTLIB REQUIRED gattlib)
+endif()
 
 juce_add_module(${PROJECT_NAME} INSTALL_PATH ${CMAKE_INSTALL_INCLUDEDIR})
 target_include_directories(${PROJECT_NAME} INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/juce_bluetooth)
