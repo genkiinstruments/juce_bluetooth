@@ -1,5 +1,5 @@
 {
-  description = "JUCE Bluetooth cross-compilation environment";
+  description = "Development environment with JUCE dependencies and gattlib";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -11,44 +11,61 @@
       let
         pkgs = nixpkgs.legacyPackages.${system};
 
-        # Use a simpler cross-compiler setup
-        crossPkgsSimple = pkgs.pkgsCross.aarch64-multiplatform.buildPackages;
-
-      in {
+        # Import your gattlib package
+        gattlib = pkgs.callPackage ./gattlib.nix {};
+      in
+      {
         devShells.default = pkgs.mkShell {
-          nativeBuildInputs = with pkgs; [
-            cmake
-            ninja
-            pkg-config
-          ];
-
           buildInputs = with pkgs; [
-            # Cross compiler toolchain
-            crossPkgsSimple.gcc
+            # Your existing packages
+            pkg-config
+            alsa-lib
+            freetype
+            fontconfig
+            libGL
+            curl
+            webkitgtk
+            gtk3
+            xorg.libX11
+            xorg.libXrandr
+            xorg.libXcursor
+            xorg.libXinerama
 
-            # Native dependencies for build
-            juce
-            fmt
-            microsoft-gsl
-            range-v3
+            bluez
+
+            # Add gattlib
+            gattlib
           ];
 
           shellHook = ''
-            export CC=${crossPkgsSimple.gcc}/bin/aarch64-unknown-linux-gnu-gcc
-            export CXX=${crossPkgsSimple.gcc}/bin/aarch64-unknown-linux-gnu-g++
+            export LD_LIBRARY_PATH=${pkgs.lib.makeLibraryPath [
+              pkgs.alsa-lib
+              pkgs.freetype
+              pkgs.fontconfig
+              pkgs.libGL
+              pkgs.curl
+              pkgs.webkitgtk
+              pkgs.gtk3
+              pkgs.xorg.libX11
+              pkgs.xorg.libXrandr
+              pkgs.xorg.libXcursor
+              pkgs.xorg.libXinerama
+              pkgs.bluez
+              gattlib
+            ]}:$LD_LIBRARY_PATH
 
-            # Set include paths for native dependencies
-            export CXXFLAGS="-I${pkgs.fmt}/include -I${pkgs.microsoft-gsl}/include -I${pkgs.range-v3}/include -I${pkgs.juce}/include"
+            # Export the gattlib location explicitly
+            export GATTLIB_DIR=${gattlib}
+            export GATTLIB_INCLUDE_DIR=${gattlib}/include
+            export GATTLIB_LIBRARY_DIR=${gattlib}/lib
 
-            echo "Cross-compilation environment ready!"
-            echo "CC=$CC"
-            echo "CXX=$CXX"
-
-            if [ "$SHELL" != "$(which fish)" ]; then
-              exec fish
-            fi
+            # Add to PKG_CONFIG_PATH
+            export PKG_CONFIG_PATH=${gattlib}/lib/pkgconfig:$PKG_CONFIG_PATH
           '';
         };
-      }
-    );
+
+        # Optionally, make gattlib available as a package
+        packages.gattlib = gattlib;
+        packages.default = gattlib;
+      });
 }
