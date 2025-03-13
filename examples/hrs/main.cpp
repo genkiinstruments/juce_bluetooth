@@ -109,6 +109,9 @@ int main()
     while (!term)
         juce::MessageManager::getInstance()->runDispatchLoopUntil(50);
 
+    if (device.has_value())
+        adapter.disconnect(*device);
+
     juce::MessageManager::deleteInstance();
     juce::DeletedAtShutdown::deleteAll();
 }
