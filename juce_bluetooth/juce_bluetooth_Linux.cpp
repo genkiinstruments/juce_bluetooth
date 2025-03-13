@@ -1,14 +1,24 @@
-#include "juce_bluetooth/include/identifiers.h"
 #include <juce_core/system/juce_TargetPlatform.h>
 
 #if JUCE_LINUX
 
 #include "juce_bluetooth.h"
 
+#ifdef __GNUC__
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wvariadic-macros"
+#endif
 #include <gattlib.h>
+#ifdef __GNUC__
+#pragma GCC diagnostic pop
+#endif
+
 #include <gsl/span>
+#include <range/v3/view.hpp>
 
 #include "format.h"
+#include "ranges.h"
+#include "native/linux/gattlib_utils.h"
 
 using namespace juce;
 
@@ -20,182 +30,11 @@ using namespace juce;
 
 namespace genki {
 
-struct BleAdapter::Impl : private ValueTree::Listener {
+struct BleAdapter::Impl : private juce::ValueTree::Listener {
     explicit Impl(ValueTree);
     ~Impl() override;
 
     //==================================================================================================================
-    void valueTreeChildAdded(ValueTree& parent, ValueTree& child) override
-    {
-        if (child.hasType(ID::DISCOVER_SERVICES))
-        {
-            auto device = parent;
-            jassert(device.hasType(ID::BLUETOOTH_DEVICE));
-
-            if (auto it = connections.find(device.getProperty(ID::address).toString()); it != connections.end())
-            {
-                gattlib_connection_t* connection = it->second.first;
-
-                int services_count = 0; // gattlib_discover_primary will update this...
-                gattlib_primary_service_t* services = nullptr; // gattlib_discover_primary will allocate this :shiver:
-
-                [[maybe_unused]] const auto ret = gattlib_discover_primary(connection, &services, &services_count);
-                jassert(ret == GATTLIB_SUCCESS);
-
-        	    for (int i = 0; i < services_count; i++) {
-                    std::array<char, MAX_LEN_UUID_STR + 1> uuid_str{};
-
-                    [[maybe_unused]] const auto uuid_str_ret = gattlib_uuid_to_string(&services[i].uuid, uuid_str.data(), uuid_str.size());
-                    jassert(uuid_str_ret == GATTLIB_SUCCESS);
-
-                    device.appendChild({ID::SERVICE, {
-                        {ID::uuid, juce::String(uuid_str.data())},
-                        {ID::handle_start, services[i].attr_handle_start},
-                        {ID::handle_end, services[i].attr_handle_end},
-                    }, {}}, nullptr);
-                }
-
-                free(services); // WATCH OUT
-
-                genki::message(device, ID::SERVICES_DISCOVERED);
-            }
-        }
-        if (child.hasType(ID::DISCOVER_CHARACTERISTICS))
-        {
-            const auto device = getAncestor(child, ID::BLUETOOTH_DEVICE);
-            jassert(device.isValid());
-
-            auto service = parent;
-            jassert(service.hasType(ID::SERVICE));
-
-            if (auto it = connections.find(device.getProperty(ID::address).toString()); it != connections.end())
-            {
-                gattlib_connection_t* connection = it->second.first;
-
-                int characteristics_count = 0; // gattlib_discover_char will update this...
-                gattlib_characteristic_t* characteristics = nullptr; // gattlib_discover_char will allocate this :shiver:
-
-                [[maybe_unused]] const auto ret = gattlib_discover_char(connection, &characteristics, &characteristics_count);
-                jassert(ret == GATTLIB_SUCCESS);
-
-                const int handle_start = service.getProperty(ID::handle_start);
-                const int handle_end = service.getProperty(ID::handle_end);
-
-                for (int i = 0; i < characteristics_count; i++) {
-                    const auto& [handle, properties, value_handle, uuid] = characteristics[i];
-
-                    if (handle >= handle_start && handle <= handle_end)
-                    {
-                        std::array<char, MAX_LEN_UUID_STR + 1> uuid_str{};
-
-                        [[maybe_unused]] const auto uuid_str_ret = gattlib_uuid_to_string(&uuid, uuid_str.data(), uuid_str.size());
-                        jassert(uuid_str_ret == GATTLIB_SUCCESS);
-
-                        service.appendChild({ID::CHARACTERISTIC, {
-                            {ID::uuid, juce::String(uuid_str.data())},
-                            {ID::properties, properties}, // TODO
-                            {ID::handle, handle},
-                            {ID::value_handle, value_handle},
-                        }, {}}, nullptr);
-                    }
-                }
-
-                free(characteristics); // WATCH OUT
-            }
-        }
-        else if (child.hasType(ID::ENABLE_NOTIFICATIONS) || child.hasType(ID::ENABLE_INDICATIONS))
-        {
-            jassert(parent.hasType(ID::CHARACTERISTIC));
-
-            const auto& device = getAncestor(child, ID::BLUETOOTH_DEVICE);
-
-            if (auto it = connections.find(device.getProperty(ID::address).toString()); it != connections.end())
-            {
-                auto& [connection, callbacks] = it->second;
-
-                const auto event_handler = [](const uuid_t* uuid, const uint8_t* data, size_t data_length, void* user_data)
-                {
-                    const juce::String uuid_str = [&] {
-                        std::array<char, MAX_LEN_UUID_STR + 1> u{};
-
-                        [[maybe_unused]] const auto ret = gattlib_uuid_to_string(uuid, u.data(), u.size());
-                        jassert(ret == GATTLIB_SUCCESS);
-
-                        return juce::String(u.data());
-                    }();
-
-                    reinterpret_cast<Impl*>(user_data)->characteristicValueChanged(juce::Uuid(uuid_str), gsl::as_bytes(gsl::span(data, data_length)));
-                };
-
-                {
-                    const auto register_func = child.hasType(ID::ENABLE_NOTIFICATIONS)
-                                                ? &gattlib_register_notification
-                                                : &gattlib_register_indication;
-
-                    [[maybe_unused]] const auto ret = register_func(connection, event_handler, this);
-                    jassert(ret == GATTLIB_SUCCESS);
-                }
-
-                {
-                    const auto uuid_str = parent.getProperty(ID::uuid).toString();
-                    const auto uuid = [&]
-                    {
-                        uuid_t u{};
-                        [[maybe_unused]] const auto ret = gattlib_string_to_uuid(uuid_str.getCharPointer(), static_cast<size_t>(uuid_str.length()) + 1, &u);
-                        jassert(ret == GATTLIB_SUCCESS);
-                        return u;
-                    }();
-
-                    handlers.insert_or_assign(juce::Uuid(uuid_str), &callbacks);
-
-                    LOG(fmt::format("Bluetooth - Enable notifications for UUID: {}", uuid_str));
-                    [[maybe_unused]] const auto ret = gattlib_notification_start(connection, &uuid);
-                    jassert(ret == GATTLIB_SUCCESS);
-                }
-            }
-        }
-        else if (child.hasType(ID::SCAN))
-        {
-            if (child.getProperty(ID::should_start))
-            {
-                LOG("Bluetooth - Starting scan...");
-
-                // TODO: One callback per device is fired, need to use bluez through D-Bus directly to get RSSI updates during discovery
-                const auto discovered_device_cb = [](gattlib_adapter_t*, const char* addr, const char* name, void* user_data) {
-                    jassert(user_data != nullptr);
-                    reinterpret_cast<Impl*>(user_data)->deviceDiscovered(addr ? addr : "", name ? name : "");
-                };
-
-                // TODO: Filters
-                [[maybe_unused]] const auto ret = gattlib_adapter_scan_enable_with_filter_non_blocking(
-                        adapter,
-                        nullptr,// uuid_list
-                        0,      // rssi_threshold
-                        0,      // enabled_filters
-                        discovered_device_cb,
-                        0, // timeout, 0 means indefinite scan
-                        reinterpret_cast<void*>(this) // :shrug:
-                );
-
-                jassert(ret == GATTLIB_SUCCESS);
-            }
-            else
-            {
-                LOG("Bluetooth - Stopping scan...");
-
-                [[maybe_unused]] const auto ret = gattlib_adapter_scan_disable(adapter);
-                jassert(ret == GATTLIB_SUCCESS);
-            }
-        }
-        else if (child.hasType(ID::BLUETOOTH_DEVICE))
-        {
-            LOG(fmt::format("Bluetooth - Device added: {} ({}), {}",
-                            child.getProperty(ID::name).toString(),
-                            child.getProperty(ID::address).toString(),
-                            child.getProperty(ID::is_connected) ? "connected" : "not connected"));
-        }
-    }
-
     void connect(const juce::ValueTree& device, const BleDevice::Callbacks& callbacks)
     {
         const auto on_device_connect = [](gattlib_adapter_t*, const char* addr, gattlib_connection_t* connection, int error, void* user_data)
@@ -217,6 +56,44 @@ struct BleAdapter::Impl : private ValueTree::Listener {
         jassert(ret == GATTLIB_SUCCESS);
     }
 
+    void disconnect(const BleDevice& device)
+    {
+        const auto addr = device.state.getProperty(ID::address).toString();
+
+        if (const auto it = connections.find(addr); it != connections.end())
+        {
+            LOG(fmt::format("Bluetooth - Disconnect device: {}", addr));
+
+            [[maybe_unused]] const auto ret = gattlib_disconnect(it->second.first, false);
+            jassert(ret == GATTLIB_SUCCESS);
+        }
+    }
+
+    void writeCharacteristic(const BleDevice& device, const juce::Uuid& charactUuid, gsl::span<const gsl::byte> data, bool withResponse)
+    {
+        const auto addr = device.state.getProperty(ID::address).toString();
+
+        if (const auto it = connections.find(addr); it != connections.end())
+        {
+            const auto connection = it->second.first;
+
+            uuid_t uuid = genki::gattlib_utils::from_juce_uuid(charactUuid);
+
+            // TODO: Can we get a characteristic_written callback?
+            const auto write_func = withResponse ? &gattlib_write_char_by_uuid : &gattlib_write_without_response_char_by_uuid;
+
+            [[maybe_unused]] const auto ret = write_func(
+                connection,
+                &uuid,
+                data.data(),
+                data.size()
+            );
+
+            jassert(ret == GATTLIB_SUCCESS);
+        }
+    }
+
+    //==================================================================================================================
     void deviceConnected(std::string_view addr, gattlib_connection_t* connection, int error)
     {
         if (error != GATTLIB_SUCCESS)
@@ -248,6 +125,7 @@ struct BleAdapter::Impl : private ValueTree::Listener {
     void deviceDisconnected(gattlib_connection_t* connection)
     {
         const auto it = std::find_if(connections.begin(), connections.end(), [&](const auto& p) { return p.second.first == connection; });
+
         if (it != connections.end())
         {
             const auto& addr = it->first;
@@ -294,25 +172,198 @@ struct BleAdapter::Impl : private ValueTree::Listener {
 
      void characteristicValueChanged(const juce::Uuid& uuid, gsl::span<const gsl::byte> value)
      {
-        // LOG(fmt::format("Bluetooth - Characteristic value changed: {}, {}", uuid.toDashedString(), value));
-
         if (auto it = handlers.find(uuid); it != handlers.end())
             it->second->valueChanged(uuid, value);
      }
 
+     void characteristicWritten(const juce::Uuid& uuid, gsl::span<const gsl::byte> value)
+     {
+        if (auto it = handlers.find(uuid); it != handlers.end())
+            it->second->valueChanged(uuid, value);
+     }
+
+     //==================================================================================================================
+     void valueTreeChildAdded(ValueTree& parent, ValueTree& child) override
+     {
+        if (child.hasType(ID::DISCOVER_SERVICES))
+        {
+            auto device = parent;
+            jassert(device.hasType(ID::BLUETOOTH_DEVICE));
+
+            if (auto it = connections.find(device.getProperty(ID::address).toString()); it != connections.end())
+            {
+                gattlib_connection_t* connection = it->second.first;
+
+                int services_count = 0; // gattlib_discover_primary will update this...
+                gattlib_primary_service_t* services = nullptr; // gattlib_discover_primary will allocate this :shiver:
+
+                [[maybe_unused]] const auto ret = gattlib_discover_primary(connection, &services, &services_count);
+                jassert(ret == GATTLIB_SUCCESS);
+
+       	    for (int i = 0; i < services_count; i++) {
+                    const auto uuid_str = genki::gattlib_utils::get_uuid_string(services[i].uuid);
+
+                    device.appendChild({ID::SERVICE, {
+                        {ID::uuid, uuid_str},
+                        {ID::handle_start, services[i].attr_handle_start},
+                        {ID::handle_end, services[i].attr_handle_end},
+                    }, {}}, nullptr);
+                }
+
+                free(services); // WATCH OUT
+
+                genki::message(device, ID::SERVICES_DISCOVERED);
+            }
+        }
+        else if (child.hasType(ID::DISCOVER_CHARACTERISTICS))
+        {
+            const auto device = getAncestor(child, ID::BLUETOOTH_DEVICE);
+            jassert(device.isValid());
+
+            auto service = parent;
+            jassert(service.hasType(ID::SERVICE));
+
+            if (auto it = connections.find(device.getProperty(ID::address).toString()); it != connections.end())
+            {
+                gattlib_connection_t* connection = it->second.first;
+
+                int characteristics_count = 0; // gattlib_discover_char will update this...
+                gattlib_characteristic_t* characteristics = nullptr; // gattlib_discover_char will allocate this :shiver:
+
+                [[maybe_unused]] const auto ret = gattlib_discover_char(connection, &characteristics, &characteristics_count);
+                jassert(ret == GATTLIB_SUCCESS);
+
+                const int handle_start = service.getProperty(ID::handle_start);
+                const int handle_end = service.getProperty(ID::handle_end);
+
+                for (int i = 0; i < characteristics_count; i++) {
+                    const auto& [handle, properties, value_handle, uuid] = characteristics[i];
+
+                    if (handle >= handle_start && handle <= handle_end)
+                    {
+                        const auto uuid_str = genki::gattlib_utils::get_uuid_string(characteristics[i].uuid);
+
+                        service.appendChild({ID::CHARACTERISTIC, {
+                            {ID::uuid, uuid_str},
+                            {ID::properties, properties}, // TODO
+                            {ID::handle, handle},
+                            {ID::value_handle, value_handle},
+                        }, {}}, nullptr);
+                    }
+                }
+
+                free(characteristics); // WATCH OUT
+            }
+        }
+        else if (child.hasType(ID::ENABLE_NOTIFICATIONS) || child.hasType(ID::ENABLE_INDICATIONS))
+        {
+            jassert(parent.hasType(ID::CHARACTERISTIC));
+
+            const auto& device = getAncestor(child, ID::BLUETOOTH_DEVICE);
+
+            if (auto it = connections.find(device.getProperty(ID::address).toString()); it != connections.end())
+            {
+                auto& [connection, callbacks] = it->second;
+
+                const auto event_handler = [](const uuid_t* uuid, const uint8_t* data, size_t data_length, void* user_data)
+                {
+                    const auto uuid_str = genki::gattlib_utils::get_uuid_string(*uuid);
+
+                    reinterpret_cast<Impl*>(user_data)->characteristicValueChanged(juce::Uuid(uuid_str), gsl::as_bytes(gsl::span(data, data_length)));
+                };
+
+                {
+                    const auto register_func = child.hasType(ID::ENABLE_NOTIFICATIONS)
+                                                ? &gattlib_register_notification
+                                                : &gattlib_register_indication;
+
+                    [[maybe_unused]] const auto ret = register_func(connection, event_handler, this);
+                    jassert(ret == GATTLIB_SUCCESS);
+                }
+
+                {
+                    const auto juce_uuid = juce::Uuid(parent.getProperty(ID::uuid).toString());
+                    const auto uuid = genki::gattlib_utils::from_juce_uuid(juce_uuid);
+
+                    handlers.insert_or_assign(juce_uuid, &callbacks);
+
+                    LOG(fmt::format("Bluetooth - Enable notifications for UUID: {}", juce_uuid.toDashedString()));
+                    [[maybe_unused]] const auto ret = gattlib_notification_start(connection, &uuid);
+                    jassert(ret == GATTLIB_SUCCESS);
+                }
+            }
+        }
+        else if (child.hasType(ID::SCAN))
+        {
+            if (child.getProperty(ID::should_start))
+            {
+                LOG("Bluetooth - Starting scan...");
+                using namespace ranges;
+
+                const auto rng       = ValueTreeRange(child);
+                const auto uuid_strs = rng | views::transform(property_as<String>(ID::uuid));
+
+                LOG(fmt::format("Bluetooth - Starting scan for services:\n{}",
+                        uuid_strs
+                        | views::transform(to_string_view)
+                        | views::join('\n')
+                        | to<std::string>())
+                );
+
+                const auto uuids = uuid_strs | views::transform(genki::gattlib_utils::from_juce_uuid) | to<std::vector>();
+
+                // Put in in a form that the gattlib C API can work with
+                auto uuid_ps = uuids | views::transform([](const uuid_t& uuid) { return const_cast<uuid_t*>(&uuid); }) | to<std::vector>();
+                uuid_ps.push_back(nullptr);
+
+                // TODO: One callback per device is fired, need to use bluez through D-Bus directly to get RSSI updates during discovery
+                const auto discovered_device_cb = [](gattlib_adapter_t*, const char* addr, const char* name, void* user_data) {
+                    jassert(user_data != nullptr);
+                    reinterpret_cast<Impl*>(user_data)->deviceDiscovered(addr ? addr : "", name ? name : "");
+                };
+
+                [[maybe_unused]] const auto ret = gattlib_adapter_scan_enable_with_filter_non_blocking(
+                        adapter,
+                        uuid_ps.size() > 1 ? uuid_ps.data() : nullptr,
+                        0, // rssi_threshold
+                        uuid_ps.size() > 1 ? GATTLIB_DISCOVER_FILTER_USE_UUID : 0,
+                        discovered_device_cb,
+                        0, // timeout, 0 means indefinite scan
+                        reinterpret_cast<void*>(this) // :shrug:
+                );
+
+                jassert(ret == GATTLIB_SUCCESS);
+            }
+            else
+            {
+                LOG("Bluetooth - Stopping scan...");
+
+                [[maybe_unused]] const auto ret = gattlib_adapter_scan_disable(adapter);
+                jassert(ret == GATTLIB_SUCCESS);
+            }
+        }
+        else if (child.hasType(ID::BLUETOOTH_DEVICE))
+        {
+            LOG(fmt::format("Bluetooth - Device added: {} ({}), {}",
+                            child.getProperty(ID::name).toString(),
+                            child.getProperty(ID::address).toString(),
+                            child.getProperty(ID::is_connected) ? "connected" : "not connected"));
+        }
+    }
+
     //==================================================================================================================
     juce::ValueTree valueTree;
 
-    juce::CriticalSection peripheralsLock;
     std::map<juce::String, std::pair<gattlib_connection_t*, genki::BleDevice::Callbacks>> connections;
     std::map<juce::Uuid, genki::BleDevice::Callbacks*> handlers;
 
     gattlib_adapter_t* adapter = nullptr;
 };
 
+//======================================================================================================================
 BleAdapter::Impl::Impl(ValueTree vt) : valueTree(std::move(vt))
 {
-    [[maybe_unused]] const auto ret = gattlib_adapter_open(nullptr, &adapter);
+    const auto ret = gattlib_adapter_open(nullptr, &adapter);
 
     if (ret != GATTLIB_SUCCESS || adapter == nullptr)
     {
@@ -348,9 +399,9 @@ BleDevice BleAdapter::connect(const ValueTree& device, const BleDevice::Callback
     return BleDevice(device);
 }
 
-void BleAdapter::disconnect(const BleDevice&)
+void BleAdapter::disconnect(const BleDevice& device)
 {
-    jassertfalse;
+    impl->disconnect(device);
 }
 
 size_t BleAdapter::getMaximumValueLength(const BleDevice&)
@@ -360,9 +411,9 @@ size_t BleAdapter::getMaximumValueLength(const BleDevice&)
 }
 
 //======================================================================================================================
-void BleDevice::write(BleAdapter&, const Uuid&, gsl::span<const gsl::byte>, bool)
+void BleDevice::write(BleAdapter& adapter, const Uuid& uuid, gsl::span<const gsl::byte> data, bool withResponse)
 {
-    jassertfalse;
+    adapter.impl->writeCharacteristic(*this, uuid, data, withResponse);
 }
 
 }// namespace genki
