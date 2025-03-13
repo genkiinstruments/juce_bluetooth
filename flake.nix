@@ -11,7 +11,6 @@
       let
         pkgs = nixpkgs.legacyPackages.${system};
 
-        # Import your gattlib package
         gattlib = pkgs.callPackage ./gattlib.nix {};
       in
       {
@@ -32,8 +31,6 @@
             xorg.libXinerama
 
             bluez
-
-            # Add gattlib
             gattlib
           ];
 
