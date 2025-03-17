@@ -5,14 +5,11 @@ set(CMAKE_CXX_STANDARD 20)
 
 include(cmake/CPM.cmake)
 
-add_compile_definitions(JUCE_LINUX_USE_GLIB_MAINLOOP=1)
-
 # NOTE: CPM calculates a hash based on the arguments passed to CPMAddPackage(...)
 #       We need to pass in absolute paths to the the patches to avoid downloading multiple copies of JUCE...
 get_filename_component(cpm_abs "${CPM_SOURCE_CACHE}" ABSOLUTE)
 file(GLOB patch_files "${CMAKE_CURRENT_SOURCE_DIR}/cmake/*.patch")
 file(COPY ${patch_files} DESTINATION ${cpm_abs}/patches)
-
 
 if (${CMAKE_SOURCE_DIR} STREQUAL ${CMAKE_CURRENT_SOURCE_DIR})
     CPMAddPackage(NAME JUCE
@@ -35,6 +32,7 @@ include(GNUInstallDirs)
 
 juce_add_module(${PROJECT_NAME} INSTALL_PATH ${CMAKE_INSTALL_INCLUDEDIR})
 target_include_directories(${PROJECT_NAME} INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/juce_bluetooth)
+target_compile_definitions(${PROJECT_NAME} INTERFACE JUCE_LINUX_USE_GLIB_MAINLOOP=1)
 
 add_library(genki::bluetooth ALIAS ${PROJECT_NAME})
 target_link_libraries(${PROJECT_NAME} INTERFACE GSL fmt range-v3)
