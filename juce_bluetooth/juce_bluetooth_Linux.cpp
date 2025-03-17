@@ -90,6 +90,12 @@ struct BleAdapter::Impl : private juce::ValueTree::Listener {
             );
 
             jassert(ret == GATTLIB_SUCCESS);
+
+            // Imitate the async-ness of the API
+            juce::MessageManager::callAsync([this, charactUuid, ret] {
+                if (auto h = handlers.find(charactUuid); h != handlers.end())
+                    h->second->characteristicWritten(charactUuid, ret == GATTLIB_SUCCESS);
+            });
         }
     }
 
