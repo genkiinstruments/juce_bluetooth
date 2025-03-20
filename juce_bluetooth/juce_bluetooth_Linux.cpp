@@ -45,9 +45,11 @@ struct BleAdapter::Impl : private juce::ValueTree::Listener {
         const auto addr = device.getProperty(ID::address).toString();
         connections.insert({addr, {nullptr, callbacks}});
 
+        const auto native_addr = gattlib_utils::get_native_address_string(addr);
+
         [[maybe_unused]] const auto ret = gattlib_connect(
             adapter,
-            addr.getCharPointer(),
+            native_addr.getCharPointer(),
             GATTLIB_CONNECTION_OPTIONS_NONE,
             on_device_connect,
             this
@@ -110,7 +112,7 @@ struct BleAdapter::Impl : private juce::ValueTree::Listener {
             return;
         }
 
-        const auto addr_str = juce::String(addr.data());
+        const auto addr_str = gattlib_utils::get_address_string(addr.data());
 
         connections.at(addr_str).first = connection;
 
@@ -152,7 +154,7 @@ struct BleAdapter::Impl : private juce::ValueTree::Listener {
 
     void deviceDiscovered(std::string_view addr, std::string_view name)
     {
-        const auto addr_str     = juce::String(addr.data());
+        const auto addr_str     = gattlib_utils::get_address_string(addr.data());
         const auto name_str     = juce::String(name.data());
         const bool is_connected = false;// TODO: How to know?
         const auto rssi         = [&] {

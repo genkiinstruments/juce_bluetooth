@@ -35,6 +35,15 @@ inline uuid_t from_juce_uuid(const juce::Uuid& uuid)
 }
 
 inline juce::String get_uuid_string(const uuid_t& uuid) { return to_juce_uuid(uuid).toDashedString(); }
-// inline juce::String get_address_string(NSUUID* _Nonnull uuid) { return juce::String([[uuid UUIDString] UTF8String]).toLowerCase(); }
 
-} // namespace genki::corebluetooth_utils
+inline auto get_address_string(const char* addr) -> juce::String
+{
+    return juce::MACAddress(addr).toString();
+}
+
+inline auto get_native_address_string(const juce::String& str) -> juce::String
+{
+    return juce::MACAddress(str.replace("-:", "")).toString().replace("-", ":").toUpperCase();
+}
+
+} // namespace genki::gattlib_utils
