@@ -125,6 +125,7 @@ struct BleAdapter::Impl : private juce::ValueTree::Listener {
         if (auto ch = valueTree.getChildWithProperty(ID::address, addr_str); ch.isValid())
         {
             ch.setProperty(ID::is_connected, true, nullptr);
+            ch.setProperty(ID::max_pdu_size, 20, nullptr);
         }
     }
 
@@ -296,6 +297,14 @@ struct BleAdapter::Impl : private juce::ValueTree::Listener {
                     LOG(fmt::format("Bluetooth - Enable notifications for UUID: {}", juce_uuid.toDashedString()));
                     [[maybe_unused]] const auto ret = gattlib_notification_start(connection, &uuid);
                     jassert(ret == GATTLIB_SUCCESS);
+
+                    if (ret == GATTLIB_SUCCESS)
+                    {
+                        // Imitate the async-ness of the API
+                        juce::MessageManager::callAsync([parent] {
+                            genki::message(parent, {ID::NOTIFICATIONS_ARE_ENABLED, {}});
+                        });
+                    }
                 }
             }
         }
