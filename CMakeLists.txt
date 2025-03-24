@@ -44,7 +44,8 @@ if (UNIX AND NOT APPLE)
     CPMAddPackage(NAME gattlib
             GITHUB_REPOSITORY labapart/gattlib
             GIT_TAG "1580056bce260f0d8ad7ccc8b105c34057cd1fbd"
-            PATCH_COMMAND git apply ${cpm_abs}/patches/gattlib_adapter.c.patch
+            PATCH_COMMAND git apply ${cpm_abs}/patches/gattlib_adapter_report_rssi_updates.patch
+                                    ${cpm_abs}/patches/gattlib_adapter_probe_connected_devices.patch
             OPTIONS "GATTLIB_BUILD_EXAMPLES OFF"
     )
 

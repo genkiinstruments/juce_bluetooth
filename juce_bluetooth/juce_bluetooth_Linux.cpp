@@ -29,6 +29,17 @@ using namespace juce;
 #define LOG(text) JUCE_BLOCK_WITH_FORCED_SEMICOLON(if (GENKI_BLUETOOTH_LOG_ENABLED) { DBG(text); })
 
 namespace genki {
+//======================================================================================================================
+struct LambdaTimer : public juce::Timer
+{
+    LambdaTimer(std::function<void()> cb, int intervalMs) : callback(std::move(cb)) { startTimer(intervalMs); }
+
+    ~LambdaTimer() override { stopTimer(); }
+
+    void timerCallback() override { if (callback) callback(); }
+
+    std::function<void()> callback;
+};
 
 struct BleAdapter::Impl : private juce::ValueTree::Listener {
     explicit Impl(ValueTree);
@@ -152,11 +163,10 @@ struct BleAdapter::Impl : private juce::ValueTree::Listener {
         }
     }
 
-    void deviceDiscovered(std::string_view addr, std::string_view name)
+    void deviceDiscovered(std::string_view addr, std::string_view name, bool is_connected = false)
     {
         const auto addr_str     = gattlib_utils::get_address_string(addr.data());
         const auto name_str     = juce::String(name.data());
-        const bool is_connected = false;// TODO: How to know?
         const auto rssi         = [&] {
             int16_t rssi_i16 = 0;
             gattlib_get_rssi_from_mac(adapter, addr.data(), &rssi_i16);
@@ -333,11 +343,23 @@ struct BleAdapter::Impl : private juce::ValueTree::Listener {
                 auto uuid_ps = uuids | views::transform([](const uuid_t& uuid) { return const_cast<uuid_t*>(&uuid); }) | to<std::vector>();
                 uuid_ps.push_back(nullptr);
 
-                // TODO: One callback per device is fired, need to use bluez through D-Bus directly to get RSSI updates during discovery
                 const auto discovered_device_cb = [](gattlib_adapter_t*, const char* addr, const char* name, void* user_data) {
-                    jassert(user_data != nullptr);
-                    reinterpret_cast<Impl*>(user_data)->deviceDiscovered(addr ? addr : "", name ? name : "");
-                };
+                                    jassert(user_data != nullptr);
+                                    reinterpret_cast<Impl*>(user_data)->deviceDiscovered(addr ? addr : "", name ? name : "");
+                                };
+
+                // TODO: Filter by services...
+                connectedDevicePoll = std::make_unique<LambdaTimer>(
+                                        [this]
+                                        {
+                                            const auto connected_device_cb = [](gattlib_adapter_t*, const char* addr, const char* name, void* user_data)
+                                            {
+                                                jassert(user_data != nullptr);
+                                                reinterpret_cast<Impl*>(user_data)->deviceDiscovered(addr ? addr : "", name ? name : "", true);
+                                            };
+
+                                            gattlib_adapter_probe_connected_devices(adapter, connected_device_cb, this);
+                                        }, 500);
 
                 [[maybe_unused]] const auto ret = gattlib_adapter_scan_enable_with_filter_non_blocking(
                         adapter,
@@ -375,6 +397,8 @@ struct BleAdapter::Impl : private juce::ValueTree::Listener {
     std::map<juce::Uuid, genki::BleDevice::Callbacks*> handlers;
 
     gattlib_adapter_t* adapter = nullptr;
+
+    std::unique_ptr<LambdaTimer> connectedDevicePoll;
 };
 
 //======================================================================================================================
@@ -391,6 +415,8 @@ BleAdapter::Impl::Impl(ValueTree vt) : valueTree(std::move(vt))
     {
         valueTree.setProperty(ID::status, static_cast<int>(AdapterStatus::PoweredOn), nullptr);
         valueTree.setProperty(ID::name, gattlib_adapter_get_name(adapter), nullptr);
+
+        LOG(fmt::format("Bluetooth - Opened adapter: {}", valueTree.getProperty(ID::name).toString()));
     }
 
     valueTree.addListener(this);
