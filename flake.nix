@@ -1,5 +1,5 @@
 {
-  description = "Development environment with JUCE dependencies and gattlib";
+  description = "Development environment with JUCE dependencies";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -10,8 +10,6 @@
     flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
-
-        gattlib = pkgs.callPackage ./gattlib.nix {};
       in
       {
         devShells.default = pkgs.mkShell {
@@ -29,9 +27,9 @@
             xorg.libXrandr
             xorg.libXcursor
             xorg.libXinerama
+            ladspa-sdk
 
             bluez
-            gattlib
           ];
 
           shellHook = ''
@@ -48,21 +46,9 @@
               pkgs.xorg.libXcursor
               pkgs.xorg.libXinerama
               pkgs.bluez
-              gattlib
+              pkgs.ladspa-sdk
             ]}:$LD_LIBRARY_PATH
-
-            # Export the gattlib location explicitly
-            export GATTLIB_DIR=${gattlib}
-            export GATTLIB_INCLUDE_DIR=${gattlib}/include
-            export GATTLIB_LIBRARY_DIR=${gattlib}/lib
-
-            # Add to PKG_CONFIG_PATH
-            export PKG_CONFIG_PATH=${gattlib}/lib/pkgconfig:$PKG_CONFIG_PATH
           '';
         };
-
-        # Optionally, make gattlib available as a package
-        packages.gattlib = gattlib;
-        packages.default = gattlib;
       });
 }

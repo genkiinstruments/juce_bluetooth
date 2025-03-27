@@ -25,9 +25,6 @@ CPMAddPackage("gh:microsoft/GSL#v4.0.0")
 CPMAddPackage("gh:fmtlib/fmt#10.1.1")
 CPMAddPackage("gh:ericniebler/range-v3#0.12.0")
 
-if (UNIX AND NOT APPLE)
-endif ()
-
 include(GNUInstallDirs)
 
 juce_add_module(${PROJECT_NAME} INSTALL_PATH ${CMAKE_INSTALL_INCLUDEDIR})
@@ -39,19 +36,20 @@ target_link_libraries(${PROJECT_NAME} INTERFACE GSL fmt range-v3)
 
 if (UNIX AND NOT APPLE)
     find_package(PkgConfig REQUIRED)
-    pkg_check_modules(GLIB REQUIRED glib-2.0)
 
-    CPMAddPackage(NAME gattlib
-            GITHUB_REPOSITORY labapart/gattlib
-            GIT_TAG "1580056bce260f0d8ad7ccc8b105c34057cd1fbd"
-            PATCH_COMMAND git apply ${cpm_abs}/patches/gattlib_adapter_report_rssi_updates.patch
-                                    ${cpm_abs}/patches/gattlib_adapter_probe_connected_devices.patch
-            OPTIONS "GATTLIB_BUILD_EXAMPLES OFF"
-    )
+    pkg_check_modules(GLIB REQUIRED glib-2.0)
+    pkg_search_module(GIO_UNIX REQUIRED gio-unix-2.0)
 
     target_include_directories(${PROJECT_NAME} INTERFACE ${GLIB_INCLUDE_DIRS})
     target_link_directories(${PROJECT_NAME} INTERFACE ${GLIB_LIBRARY_DIRS})
-    target_link_libraries(${PROJECT_NAME} INTERFACE gattlib ${GLIB_LIBRARIES})
+    target_link_libraries(${PROJECT_NAME} INTERFACE ${GLIB_LIBRARIES})
+
+    target_include_directories(${PROJECT_NAME} INTERFACE ${GIO_UNIX_INCLUDE_DIRS})
+    target_link_directories(${PROJECT_NAME} INTERFACE ${GIO_UNIX_LIBRARY_DIRS})
+    target_link_libraries(${PROJECT_NAME} INTERFACE ${GIO_UNIX_LIBRARIES})
+
+    add_subdirectory(juce_bluetooth/bluez-dbus)
+    target_link_libraries(${PROJECT_NAME} INTERFACE bluez-dbus)
 endif ()
 
 option(JUCE_BLUETOOTH_BUILD_EXAMPLES OFF "Enable juce_bluetooth example builds")

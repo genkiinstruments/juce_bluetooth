@@ -16,8 +16,7 @@
   dependencies: juce_core, juce_data_structures
   OSXFrameworks: CoreBluetooth Foundation
   mingwLibs: WindowsApp.lib, cppwinrt
-  linuxPackages: gattlib
-  linuxLibs: bluetooth
+  linuxLibs: bluetooth, glib-2.0
   minimumCppStandard: 17
   searchpaths: include
 
