@@ -37,14 +37,6 @@ int main()
     // Used to identify our device during discovery
     const auto my_device_name = "wave";
 
-    {
-        // Adapter status might have updated before we had a chance to attach the listener
-        const auto is_powered_on = adapter.status() == AdapterStatus::PoweredOn;
-        fmt::print("Adapter is powered {}\n", is_powered_on ? "on" : "off");
-
-        adapter.scan(is_powered_on);
-    }
-
     listener.property_changed = [&](juce::ValueTree& vt, const juce::Identifier& id)
     {
         if (vt.hasType(ID::BLUETOOTH_ADAPTER) && id == ID::status)

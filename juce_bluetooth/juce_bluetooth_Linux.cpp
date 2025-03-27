@@ -45,30 +45,56 @@ struct BleAdapter::Impl : private juce::ValueTree::Listener {
     ~Impl() override;
 
     //==================================================================================================================
-    void connect(const juce::ValueTree& device, const BleDevice::Callbacks& callbacks)
+    void connect(const juce::ValueTree& deviceState, const BleDevice::Callbacks& callbacks)
     {
-        // const auto on_device_connect = [](gattlib_adapter_t*, const char* addr, gattlib_connection_t* connection, int error, void* user_data)
-        // {
-        //     reinterpret_cast<Impl*>(user_data)->deviceConnected(addr, connection, error);
-        // };
+        const juce::String addr_str = deviceState.getProperty(ID::address);
 
-        // const auto addr = device.getProperty(ID::address).toString();
-        // {
-        //     const juce::ScopedLock lock(connectionsLock);
-        //     connections.insert({addr, {nullptr, callbacks}});
-        // }
+        // Device address in the format "XX:XX:XX:XX:XX:XX";
+        const auto native_addr_str = bluez_utils::get_native_address_string(addr_str);
+        const char* adapter_path = g_dbus_proxy_get_object_path(G_DBUS_PROXY(bluezAdapter));
 
-        // const auto native_addr = gattlib_utils::get_native_address_string(addr);
+        char* device_path = g_strdup_printf("%s/dev_%s", adapter_path, g_strdelimit(g_strdup(native_addr_str.getCharPointer()), ":", '_'));
 
-        // [[maybe_unused]] const auto ret = gattlib_connect(
-        //     adapter,
-        //     native_addr.getCharPointer(),
-        //     GATTLIB_CONNECTION_OPTIONS_NONE,
-        //     on_device_connect,
-        //     this
-        // );
+        GError* error = nullptr;
+        OrgBluezDevice1* device = org_bluez_device1_proxy_new_for_bus_sync(
+				G_BUS_TYPE_SYSTEM,
+				G_DBUS_PROXY_FLAGS_NONE,
+				"org.bluez",
+				device_path,
+                nullptr,
+                &error
+        );
 
-        // jassert(ret == GATTLIB_SUCCESS);
+        if (error != nullptr)
+        {
+            LOG(fmt::format("Bluetooth - D-Bus error: {}", error->message));
+            return;
+        }
+
+        connections.insert({addr_str, {nullptr, callbacks}});
+
+        const auto on_device_connected = [](GObject* source_object, GAsyncResult* res, gpointer user_data)
+        {
+            auto* p = reinterpret_cast<BleAdapter::Impl*>(user_data);
+
+            GError* err = nullptr;
+            OrgBluezDevice1* dev = ORG_BLUEZ_DEVICE1(source_object);
+
+            if (!org_bluez_device1_call_connect_finish(dev, res, &err))
+            {
+                LOG(fmt::format("Bluetooth - Error connecting device: {}\n", err->message));
+                g_error_free(err);
+            }
+
+            p->deviceConnected(dev, err == nullptr);
+        };
+
+        org_bluez_device1_call_connect(
+            device,
+            nullptr, // cancelable
+            on_device_connected,
+            this
+        );
     }
 
     void disconnect(const BleDevice& device)
@@ -121,44 +147,28 @@ struct BleAdapter::Impl : private juce::ValueTree::Listener {
     }
 
     //==================================================================================================================
-    // void deviceConnected(std::string_view addr, gattlib_connection_t* connection, int error)
-    // {
-    //     if (error != GATTLIB_SUCCESS)
-    //     {
-    //         LOG(fmt::format("Bluetooth - Failed to connect to device: {}, error: {}", addr.data(), error));
+    void deviceConnected(OrgBluezDevice1* device, bool success)
+    {
+        const juce::String address = bluez_utils::get_address_string(org_bluez_device1_get_address(device));
 
-    //         const juce::ScopedLock lock(connectionsLock);
-    //         connections.erase(juce::String(addr.data()));
+        if (!success)
+        {
+            LOG(fmt::format("Bluetooth - Failed to connect to device: {}", address));
 
-    //         return;
-    //     }
+            connections.erase(address);
+            return;
+        }
 
-    //     LOG(fmt::format("Bluetooth - Device connected: {}", addr.data()));
+        LOG(fmt::format("Bluetooth - Device connected: {}", address));
 
-    //     const auto addr_str = gattlib_utils::get_address_string(addr.data());
+        connections.at(address).first = device;
 
-    //     {
-    //         const juce::ScopedLock lock(connectionsLock);
-    //         connections.at(addr_str).first = connection;
-    //     }
-
-    //     const auto handler = [](gattlib_connection_t* conn, void* user_data)
-    //     {
-    //         reinterpret_cast<Impl*>(user_data)->deviceDisconnected(conn);
-    //     };
-
-    //     [[maybe_unused]] const auto ret = gattlib_register_on_disconnect(connection, handler, this);
-    //     jassert(ret == GATTLIB_SUCCESS);
-
-    //     juce::MessageManager::callAsync([=]
-    //         {
-    //             if (auto ch = valueTree.getChildWithProperty(ID::address, addr_str); ch.isValid())
-    //             {
-    //                 ch.setProperty(ID::is_connected, true, nullptr);
-    //                 ch.setProperty(ID::max_pdu_size, 20, nullptr); // TODO: How to know?
-    //             }
-    //         });
-    // }
+        if (auto ch = valueTree.getChildWithProperty(ID::address, address); ch.isValid())
+        {
+            ch.setProperty(ID::is_connected, true, nullptr);
+            ch.setProperty(ID::max_pdu_size, 20, nullptr); // TODO: How to know?
+        }
+    }
 
     // void deviceDisconnected(gattlib_connection_t* connection)
     // {
@@ -408,7 +418,7 @@ struct BleAdapter::Impl : private juce::ValueTree::Listener {
                         | to<std::string>())
                 );
 
-                if (!uuid_strs.empty())
+                if (distance(uuid_strs) > 0)
                 {
                     GVariantBuilder props_builder{};
                     g_variant_builder_init(&props_builder, G_VARIANT_TYPE("a{sv}"));
@@ -595,6 +605,8 @@ struct BleAdapter::Impl : private juce::ValueTree::Listener {
     // std::map<juce::String, std::pair<gattlib_connection_t*, genki::BleDevice::Callbacks>> connections;
     // std::map<juce::Uuid, genki::BleDevice::Callbacks*> handlers;
 
+    std::map<juce::String, std::pair<OrgBluezDevice1*, genki::BleDevice::Callbacks>> connections;
+
     OrgBluezAdapter1* bluezAdapter = nullptr;
     GDBusObjectManager* dbusObjectManager = nullptr;
 
@@ -604,8 +616,6 @@ struct BleAdapter::Impl : private juce::ValueTree::Listener {
 //======================================================================================================================
 BleAdapter::Impl::Impl(ValueTree vt) : valueTree(std::move(vt))
 {
-    fmt::print("I AM {}\n", (void*) this);
-
     const auto on_adapter_ready = [](GObject* source_object, GAsyncResult* res, gpointer user_data)
     {
         auto* p = reinterpret_cast<BleAdapter::Impl*>(user_data);
