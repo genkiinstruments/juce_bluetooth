@@ -186,20 +186,14 @@ struct BleAdapter::Impl : private juce::ValueTree::Listener {
     //     }
     // }
 
-    void deviceDiscovered(std::string_view addr, std::string_view name, bool is_connected = false)
+    void deviceDiscovered(std::string_view addr, std::string_view name, int16_t rssi, bool is_connected)
     {
         const auto addr_str     = bluez_utils::get_address_string(addr.data());
         const auto name_str     = juce::String(name.data());
-        // const auto rssi         = [&] {
-        //     int16_t rssi_i16 = 0;
-        //     gattlib_get_rssi_from_mac(adapter, addr.data(), &rssi_i16);
-        //     return static_cast<int>(rssi_i16);
-        // }();
-        const auto rssi = 0;
 
         const auto now = (int) juce::Time::getMillisecondCounter();
 
-        juce::MessageManager::callAsync([=]
+        juce::MessageManager::callAsync([this, addr_str, name_str, now, rssi, is_connected]
             {
                 if (auto ch = valueTree.getChildWithProperty(ID::address, addr_str); ch.isValid())
                 {
@@ -211,7 +205,13 @@ struct BleAdapter::Impl : private juce::ValueTree::Listener {
                 }
                 else
                 {
-                    valueTree.appendChild({ID::BLUETOOTH_DEVICE, {{ID::name, name_str}, {ID::address, addr_str}, {ID::rssi, rssi}, {ID::is_connected, is_connected}, {ID::last_seen, now}}}, nullptr);
+                    valueTree.appendChild({ID::BLUETOOTH_DEVICE, {
+                        {ID::name, name_str},
+                        {ID::address, addr_str},
+                        {ID::rssi, rssi},
+                        {ID::is_connected, is_connected},
+                        {ID::last_seen, now}
+                    }}, nullptr);
                 }
             });
     }
@@ -408,6 +408,13 @@ struct BleAdapter::Impl : private juce::ValueTree::Listener {
                         | to<std::string>())
                 );
 
+                GError* error = nullptr;
+                if (!org_bluez_adapter1_call_start_discovery_sync(bluezAdapter, nullptr, &error))
+                {
+                    LOG(fmt::format("Bluetooth - Failed to start discovery: {}", error->message));
+                    g_error_free(error);
+                }
+
                 // const auto uuids = uuid_strs | views::transform(genki::gattlib_utils::from_juce_uuid) | to<std::vector>();
 
                 // // Put in in a form that the gattlib C API can work with
@@ -448,8 +455,9 @@ struct BleAdapter::Impl : private juce::ValueTree::Listener {
             {
                 LOG("Bluetooth - Stopping scan...");
 
-                // [[maybe_unused]] const auto ret = gattlib_adapter_scan_disable(adapter);
-                // jassert(ret == GATTLIB_SUCCESS);
+                GError* error = nullptr;
+                if (!org_bluez_adapter1_call_stop_discovery_sync(bluezAdapter, nullptr, &error))
+                    LOG(fmt::format("Bluetooth - Failed to stop scan: {}", error->message));
             }
         }
         else if (child.hasType(ID::BLUETOOTH_DEVICE))
@@ -461,6 +469,131 @@ struct BleAdapter::Impl : private juce::ValueTree::Listener {
         }
     }
 
+    void dbusObjectAdded(GDBusObject* object)
+    {
+        const char* object_path = g_dbus_object_get_object_path(object);
+        const GDBusInterface* interface = g_dbus_object_manager_get_interface(dbusObjectManager, object_path, "org.bluez.Device1");
+
+        if (interface != nullptr)
+        {
+            GError* error = nullptr;
+            OrgBluezDevice1* device = org_bluez_device1_proxy_new_for_bus_sync(
+                G_BUS_TYPE_SYSTEM,
+                G_DBUS_PROXY_FLAGS_NONE,
+                "org.bluez",
+                object_path,
+                nullptr,
+                &error
+            );
+
+            if (error != nullptr)
+            {
+                LOG(fmt::format("Bluetooth - D-Bus error: {}", error->message));
+                g_error_free(error);
+                return;
+            }
+
+            const char* addr = org_bluez_device1_get_address(device);
+            const char* name = org_bluez_device1_get_name(device);
+            const auto rssi = static_cast<int16_t>(org_bluez_device1_get_rssi(device));
+            const bool is_connected = org_bluez_device1_get_connected(device);
+
+            deviceDiscovered(addr ? addr : "", name ? name : "", rssi, is_connected);
+        }
+    }
+
+    void dbusInterfaceProxyPropertiesChanged(GDBusProxy* interface_proxy, GVariant* changed_properties, const gchar* const*)
+    {
+        const char* proxy_object_path = g_dbus_proxy_get_object_path(interface_proxy);
+        const juce::String interface_name(g_dbus_proxy_get_interface_name(interface_proxy));
+
+        if (interface_name == "org.bluez.Device1")
+        {
+    		GError* error = nullptr;
+
+    		OrgBluezDevice1* device = org_bluez_device1_proxy_new_for_bus_sync(
+    				G_BUS_TYPE_SYSTEM,
+    				G_DBUS_PROXY_FLAGS_NONE,
+    				"org.bluez",
+    				proxy_object_path,
+                    nullptr,
+                    &error
+            );
+
+            if (error != nullptr)
+            {
+                LOG(fmt::format("Bluetooth - D-Bus error: {}", error->message));
+                return;
+            }
+
+            GVariantDict dict = {};
+      		g_variant_dict_init(&dict, changed_properties);
+
+            if (GVariant* rssi_v = g_variant_dict_lookup_value(&dict, "RSSI", G_VARIANT_TYPE_INT16); rssi_v != nullptr)
+            {
+                const auto rssi = static_cast<int16_t>(g_variant_get_int16(rssi_v));
+
+                const char* addr = org_bluez_device1_get_address(device);
+                const char* name = org_bluez_device1_get_name(device);
+                const bool is_connected = org_bluez_device1_get_connected(device);
+
+                deviceDiscovered(addr ? addr : "", name ? name : "", rssi, is_connected);
+
+                g_variant_unref(rssi_v);
+            }
+
+            g_variant_dict_clear(&dict);
+        }
+    }
+
+    void initializeObjectManager()
+    {
+        GError* error = nullptr;
+
+        dbusObjectManager = g_dbus_object_manager_client_new_for_bus_sync(
+            G_BUS_TYPE_SYSTEM,
+            G_DBUS_OBJECT_MANAGER_CLIENT_FLAGS_NONE,
+            "org.bluez",
+            "/",
+            nullptr, // get_proxy_type_func
+            nullptr, // get_proxy_type_user_data
+            nullptr, // get_proxy_type_destroy_notify
+            nullptr, // cancellable
+            &error
+        );
+
+        if (error != NULL)
+        {
+            LOG(fmt::format("Bluetooth - Error creating D-Bus bject manager: {}", error->message));
+            g_error_free(error);
+        }
+        else
+        {
+            // Note: Need to be explicit to please the C
+            using ObjectAddedFn = void (*)(GDBusObjectManager*, GDBusObject*, gpointer);
+            const ObjectAddedFn on_object_added = [](auto* manager, auto* object, auto user_data)
+            {
+                auto* p = reinterpret_cast<BleAdapter::Impl*>(user_data);
+                jassert(manager == p->dbusObjectManager);
+
+                p->dbusObjectAdded(object);
+            };
+
+            g_signal_connect(G_DBUS_OBJECT_MANAGER(dbusObjectManager), "object-added", G_CALLBACK(on_object_added), this);
+
+            using PropertiesChangedFn = void (*)(GDBusObjectManager*, GDBusObjectProxy*, GDBusProxy*, GVariant*, const gchar* const*, gpointer);
+            const PropertiesChangedFn on_interface_proxy_properties_changed = [](auto* manager, auto*, auto* interface_proxy, auto* changed_properties, auto invalidated_properties, auto user_data)
+            {
+                auto* p = reinterpret_cast<BleAdapter::Impl*>(user_data);
+                jassert(manager == p->dbusObjectManager);
+
+                p->dbusInterfaceProxyPropertiesChanged(interface_proxy, changed_properties, invalidated_properties);
+            };
+
+            g_signal_connect(G_DBUS_OBJECT_MANAGER(dbusObjectManager), "interface-proxy-properties-changed", G_CALLBACK(on_interface_proxy_properties_changed), this);
+        }
+    }
+
     //==================================================================================================================
     juce::ValueTree valueTree;
 
@@ -469,6 +602,7 @@ struct BleAdapter::Impl : private juce::ValueTree::Listener {
     // std::map<juce::Uuid, genki::BleDevice::Callbacks*> handlers;
 
     OrgBluezAdapter1* bluezAdapter = nullptr;
+    GDBusObjectManager* dbusObjectManager = nullptr;
 
     std::unique_ptr<LambdaTimer> connectedDevicePoll;
 };
@@ -476,10 +610,12 @@ struct BleAdapter::Impl : private juce::ValueTree::Listener {
 //======================================================================================================================
 BleAdapter::Impl::Impl(ValueTree vt) : valueTree(std::move(vt))
 {
-    const auto on_finish = [](GObject* source_object, GAsyncResult* res, gpointer user_data)
+    fmt::print("I AM {}\n", (void*) this);
+
+    const auto on_adapter_ready = [](GObject* source_object, GAsyncResult* res, gpointer user_data)
     {
         auto* p = reinterpret_cast<BleAdapter::Impl*>(user_data);
-        auto& vt = p->valueTree;
+        auto& pvt = p->valueTree;
 
         GError* error = nullptr;
         p->bluezAdapter = ORG_BLUEZ_ADAPTER1(source_object);
@@ -487,7 +623,7 @@ BleAdapter::Impl::Impl(ValueTree vt) : valueTree(std::move(vt))
         if (!org_bluez_adapter1_proxy_new_for_bus_finish(res, &error))
         {
             LOG(fmt::format("Bluetooth - Error opening default adapter: {}\n", error->message));
-            vt.setProperty(ID::status, static_cast<int>(AdapterStatus::Disabled), nullptr);
+            pvt.setProperty(ID::status, static_cast<int>(AdapterStatus::Disabled), nullptr);
 
             g_error_free(error);
         }
@@ -498,8 +634,10 @@ BleAdapter::Impl::Impl(ValueTree vt) : valueTree(std::move(vt))
             const juce::String name(org_bluez_adapter1_get_name(p->bluezAdapter));
             LOG(fmt::format("Bluetooth - Opened adapter: {}", name));
 
-            vt.setProperty(ID::name, name, nullptr);
-            vt.setProperty(ID::status, static_cast<int>(AdapterStatus::PoweredOn), nullptr);
+            pvt.setProperty(ID::name, name, nullptr);
+            pvt.setProperty(ID::status, static_cast<int>(AdapterStatus::PoweredOn), nullptr);
+
+            p->initializeObjectManager();
         }
     };
 
@@ -508,8 +646,8 @@ BleAdapter::Impl::Impl(ValueTree vt) : valueTree(std::move(vt))
         G_DBUS_PROXY_FLAGS_NONE,
         "org.bluez",
         "/org/bluez/hci0",
-        nullptr,
-        on_finish,
+        nullptr, // cancellable
+        on_adapter_ready,
         this
     );
 
@@ -521,6 +659,7 @@ BleAdapter::Impl::~Impl()
     if (bluezAdapter != nullptr)
     {
         g_object_unref(bluezAdapter);
+        g_object_unref(dbusObjectManager);
     }
 }
 
