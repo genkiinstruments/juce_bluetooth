@@ -408,48 +408,42 @@ struct BleAdapter::Impl : private juce::ValueTree::Listener {
                         | to<std::string>())
                 );
 
-                GError* error = nullptr;
-                if (!org_bluez_adapter1_call_start_discovery_sync(bluezAdapter, nullptr, &error))
+                if (!uuid_strs.empty())
                 {
-                    LOG(fmt::format("Bluetooth - Failed to start discovery: {}", error->message));
-                    g_error_free(error);
+                    GVariantBuilder props_builder{};
+                    g_variant_builder_init(&props_builder, G_VARIANT_TYPE("a{sv}"));
+
+                    GVariantBuilder uuid_builder{};
+                    g_variant_builder_init(&uuid_builder, G_VARIANT_TYPE("as"));
+
+                    for (const auto& uuid : uuid_strs)
+                        g_variant_builder_add(&uuid_builder, "s", uuid.getCharPointer());
+
+                    g_variant_builder_add(&props_builder, "{sv}", "UUIDs", g_variant_builder_end(&uuid_builder));
+                    g_variant_builder_add(&props_builder, "{sv}", "Transport", g_variant_new_string("le"));  // Only LE devices
+
+                    GVariant* properties = g_variant_builder_end(&props_builder);
+
+                    GError* error = nullptr;
+                    if (!org_bluez_adapter1_call_set_discovery_filter_sync(
+                        bluezAdapter,
+                        properties,
+                        nullptr, // cancellable
+                        &error
+                    ))
+                    {
+                        LOG(fmt::format("Bluetooth - Failed to set discovery filter: {}", error->message));
+                    }
                 }
 
-                // const auto uuids = uuid_strs | views::transform(genki::gattlib_utils::from_juce_uuid) | to<std::vector>();
-
-                // // Put in in a form that the gattlib C API can work with
-                // auto uuid_ps = uuids | views::transform([](const uuid_t& uuid) { return const_cast<uuid_t*>(&uuid); }) | to<std::vector>();
-                // uuid_ps.push_back(nullptr);
-
-                // const auto discovered_device_cb = [](gattlib_adapter_t*, const char* addr, const char* name, void* user_data) {
-                //                     jassert(user_data != nullptr);
-                //                     reinterpret_cast<Impl*>(user_data)->deviceDiscovered(addr ? addr : "", name ? name : "");
-                //                 };
-
-                // // TODO: Filter by services...
-                // connectedDevicePoll = std::make_unique<LambdaTimer>(
-                //                         [this]
-                //                         {
-                //                             const auto connected_device_cb = [](gattlib_adapter_t*, const char* addr, const char* name, void* user_data)
-                //                             {
-                //                                 jassert(user_data != nullptr);
-                //                                 reinterpret_cast<Impl*>(user_data)->deviceDiscovered(addr ? addr : "", name ? name : "", true);
-                //                             };
-
-                //                             gattlib_adapter_probe_connected_devices(adapter, connected_device_cb, this);
-                //                         }, 500);
-
-                // [[maybe_unused]] const auto ret = gattlib_adapter_scan_enable_with_filter_non_blocking(
-                //         adapter,
-                //         uuid_ps.size() > 1 ? uuid_ps.data() : nullptr,
-                //         0, // rssi_threshold
-                //         uuid_ps.size() > 1 ? GATTLIB_DISCOVER_FILTER_USE_UUID : 0,
-                //         discovered_device_cb,
-                //         0, // timeout, 0 means indefinite scan
-                //         reinterpret_cast<void*>(this) // :shrug:
-                // );
-
-                // jassert(ret == GATTLIB_SUCCESS);
+                {
+                    GError* error = nullptr;
+                    if (!org_bluez_adapter1_call_start_discovery_sync(bluezAdapter, nullptr, &error))
+                    {
+                        LOG(fmt::format("Bluetooth - Failed to start discovery: {}", error->message));
+                        g_error_free(error);
+                    }
+                }
             }
             else
             {
