@@ -83,7 +83,7 @@ int main()
         else if (vt.hasType(ID::CHARACTERISTIC))
         {
             // Step 5: This is where we'll know which characteristics are available on the device
-            fmt::print("Characteristic added: {}\n", vt);
+            fmt::print("Characteristic added: {}", vt);
         }
     };
 
