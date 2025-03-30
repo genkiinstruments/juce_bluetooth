@@ -208,6 +208,7 @@ struct BleAdapter::Impl : private juce::ValueTree::Listener {
 
         if (auto ch = valueTree.getChildWithProperty(ID::address, address); ch.isValid())
         {
+            ch.removeProperty(ID::is_connected, nullptr);
             ch.setProperty(ID::is_connected, true, nullptr);
             ch.setProperty(ID::max_pdu_size, 20, nullptr); // TODO: How to know?
         }
@@ -513,6 +514,9 @@ struct BleAdapter::Impl : private juce::ValueTree::Listener {
                     LOG("Bluetooth - Starting scan...");
                 }
 
+                // TODO: Filter by UUID
+                connectedDevicePoll = std::make_unique<LambdaTimer>( [this] { probeConnectedDevices(); }, 500);
+
                 GError* error = nullptr;
                 if (!org_bluez_adapter1_call_start_discovery_sync(bluezAdapter, nullptr, &error))
                 {
@@ -680,6 +684,62 @@ struct BleAdapter::Impl : private juce::ValueTree::Listener {
 
             g_signal_connect(G_DBUS_OBJECT_MANAGER(dbusObjectManager), "interface-proxy-properties-changed", G_CALLBACK(on_interface_proxy_properties_changed), this);
         }
+    }
+
+    void probeConnectedDevices()
+    {
+        GList* objects = nullptr;
+
+        objects = g_dbus_object_manager_get_objects(dbusObjectManager);
+
+        for (GList* l = objects; l != nullptr; l = l->next)
+        {
+            GDBusObject* object = G_DBUS_OBJECT(l->data);
+
+            const char* object_path = g_dbus_object_get_object_path(object);
+
+            if (!strstr(object_path, "/dev_"))
+                continue;
+
+
+            GDBusInterface* interface = g_dbus_object_get_interface(object, "org.bluez.Device1");
+            if (interface == nullptr)
+                continue;
+
+            GDBusProxy* proxy = G_DBUS_PROXY(interface);
+
+            GVariant* connected_variant = g_dbus_proxy_get_cached_property(proxy, "Connected");
+            if (connected_variant != nullptr)
+            {
+                const bool is_connected = g_variant_get_boolean(connected_variant);
+                g_variant_unref(connected_variant);
+
+                if (is_connected)
+                {
+                    GVariant* name_variant = g_dbus_proxy_get_cached_property(proxy, "Name");
+                    GVariant* address_variant = g_dbus_proxy_get_cached_property(proxy, "Address");
+                    GVariant* rssi_variant = g_dbus_proxy_get_cached_property(proxy, "RSSI");
+
+                    if (address_variant)
+                    {
+                        const char* addr = g_variant_get_string(address_variant, nullptr);
+                        const char* name = name_variant ? g_variant_get_string(name_variant, nullptr) : "";
+                        const int16_t rssi = rssi_variant ? g_variant_get_int16(rssi_variant) : 0;
+
+                        deviceDiscovered(addr ? addr : "", name ? name : "", rssi, is_connected);
+
+                        if (name_variant)
+                            g_variant_unref(name_variant);
+
+                        g_variant_unref(address_variant);
+                    }
+                }
+            }
+
+            g_object_unref(interface);
+        }
+
+        g_list_free_full(objects, g_object_unref);
     }
 
     //==================================================================================================================
