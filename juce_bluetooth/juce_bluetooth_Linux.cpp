@@ -120,36 +120,75 @@ struct BleAdapter::Impl : private juce::ValueTree::Listener {
 
     void writeCharacteristic(const BleDevice& device, const juce::Uuid& charactUuid, gsl::span<const gsl::byte> data, bool withResponse)
     {
-        // const auto addr = device.state.getProperty(ID::address).toString();
+        const auto addr = device.state.getProperty(ID::address).toString();
 
-        // const juce::ScopedLock lock(connectionsLock);
+        if (const auto& vt = findChildWithProperty(device.state, ID::uuid, charactUuid.toDashedString()); vt.isValid())
+        {
+            const juce::String characteristic_object_path = vt.getProperty(ID::dbus_object_path);
+            GDBusObject* obj = g_dbus_object_manager_get_object(dbusObjectManager, characteristic_object_path.getCharPointer());
 
-        // if (const auto it = connections.find(addr); it != connections.end())
-        // {
-        //     const auto connection = it->second.first;
+            if (obj != nullptr)
+            {
+                GDBusInterface* interface = g_dbus_object_get_interface(obj, "org.bluez.GattCharacteristic1");
 
-        //     uuid_t uuid = genki::gattlib_utils::from_juce_uuid(charactUuid);
+                if (interface != nullptr)
+                {
+                    const auto on_write_complete = [](GObject* source_object, GAsyncResult* res, gpointer user_data)
+                    {
+                        GError* err = nullptr;
 
-        //     LOG("Bluetooth - INNER WRITE");
+                        OrgBluezGattCharacteristic1* charact = ORG_BLUEZ_GATT_CHARACTERISTIC1(source_object);
+                        [[maybe_unused]] auto* p = reinterpret_cast<BleAdapter::Impl*>(user_data);
 
-        //     // TODO: Can we get a characteristic_written callback?
-        //     const auto write_func = withResponse ? &gattlib_write_char_by_uuid : &gattlib_write_without_response_char_by_uuid;
+                        const auto uuid = juce::Uuid(org_bluez_gatt_characteristic1_get_uuid(charact));
 
-        //     [[maybe_unused]] const auto ret = write_func(
-        //         connection,
-        //         &uuid,
-        //         data.data(),
-        //         data.size()
-        //     );
+                        if (!org_bluez_gatt_characteristic1_call_start_notify_finish(charact, res, &err))
+                        {
+                            LOG(fmt::format("Bluetooth - Error writing characteristic: {} - {}\n", uuid.toDashedString(), err->message));
 
-        //     jassert(ret == GATTLIB_SUCCESS);
+                            g_error_free(err);
+                            return;
+                        }
 
-        //     // Imitate the async-ness of the API
-        //     juce::MessageManager::callAsync([this, charactUuid, success = ret == GATTLIB_SUCCESS] {
-        //         if (auto h = handlers.find(charactUuid); h != handlers.end())
-        //             h->second->characteristicWritten(charactUuid, success);
-        //     });
-        // }
+                        g_object_unref(charact);
+
+                        // TODO: Write-complete callback
+                    };
+
+                    GError* error = nullptr;
+
+                    OrgBluezGattCharacteristic1* char_proxy = org_bluez_gatt_characteristic1_proxy_new_sync(
+                        g_dbus_proxy_get_connection(G_DBUS_PROXY(interface)),
+                        G_DBUS_PROXY_FLAGS_NONE,
+                        "org.bluez",
+                        g_dbus_proxy_get_object_path(G_DBUS_PROXY(interface)),
+                        nullptr,
+                        &error
+                    );
+
+                    if (error != nullptr)
+                    {
+                        LOG(fmt::format("Bluetooth - Failed to get D-Bus proxy for characteristic: {}", error->message));
+                    }
+
+                    GVariant* arg_value = g_variant_new_fixed_array(G_VARIANT_TYPE_BYTE, data.data(), data.size(), sizeof(gsl::byte));
+
+                    GVariantBuilder builder{};
+                    g_variant_builder_init(&builder, G_VARIANT_TYPE("a{sv}"));
+                    g_variant_builder_add(&builder, "{sv}", "type", g_variant_new_string(withResponse ? "request" : "command"));
+                    GVariant* arg_options = g_variant_builder_end(&builder);
+
+                    org_bluez_gatt_characteristic1_call_write_value(
+                        char_proxy,
+                        arg_value,
+                        arg_options,
+                        nullptr, // cancelable
+                        on_write_complete,
+                        this
+                    );
+                }
+            }
+        }
     }
 
     //==================================================================================================================
@@ -254,7 +293,7 @@ struct BleAdapter::Impl : private juce::ValueTree::Listener {
         }
     }
 
-     void characteristicWritten(const juce::Uuid& uuid, bool success)
+     void characteristicWritten(const juce::Uuid&, bool)
      {
          // TODO
      }
