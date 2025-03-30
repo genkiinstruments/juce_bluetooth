@@ -47,9 +47,17 @@ struct BleAdapter::Impl : private juce::ValueTree::Listener {
     void connect(const juce::ValueTree& deviceState, const BleDevice::Callbacks& callbacks)
     {
         const juce::String address = deviceState.getProperty(ID::address);
-        OrgBluezDevice1* device = bluez_utils::get_device_for_address(bluezAdapter, address);
 
-        connections.insert({address, {nullptr, callbacks}});
+        const auto& [it, was_inserted] = connections.insert({
+            address,
+            std::make_pair(bluez_utils::get_device_for_address(bluezAdapter, address), callbacks)
+        });
+
+        if (!was_inserted)
+        {
+            LOG(fmt::format("Bluetooth - Device already in list of connections: {}", address));
+            return;
+        }
 
         const auto on_device_connected = [](GObject* source_object, GAsyncResult* res, gpointer user_data)
         {
@@ -68,6 +76,8 @@ struct BleAdapter::Impl : private juce::ValueTree::Listener {
             }
         };
 
+        OrgBluezDevice1* device =  it->second.first.get();
+
         org_bluez_device1_call_connect(
             device,
             nullptr, // cancelable
@@ -78,17 +88,34 @@ struct BleAdapter::Impl : private juce::ValueTree::Listener {
 
     void disconnect(const BleDevice& device)
     {
-        // const auto addr = device.state.getProperty(ID::address).toString();
+        const auto addr = device.state.getProperty(ID::address).toString();
 
-        // const juce::ScopedLock lock(connectionsLock);
+        if (const auto it = connections.find(addr); it != connections.end())
+        {
+            LOG(fmt::format("Bluetooth - Disconnect device: {}", addr));
 
-        // if (const auto it = connections.find(addr); it != connections.end())
-        // {
-        //     LOG(fmt::format("Bluetooth - Disconnect device: {}", addr));
+            const auto on_device_disconnected = [](GObject* source_object, GAsyncResult* res, gpointer)
+            {
+                GError* err = nullptr;
+                OrgBluezDevice1* dev = ORG_BLUEZ_DEVICE1(source_object);
 
-        //     [[maybe_unused]] const auto ret = gattlib_disconnect(it->second.first, false);
-        //     jassert(ret == GATTLIB_SUCCESS);
-        // }
+                if (!org_bluez_device1_call_connect_finish(dev, res, &err))
+                {
+                    LOG(fmt::format("Bluetooth - Error disconnecting device: {}\n", err->message));
+
+                    g_error_free(err);
+                }
+            };
+
+            OrgBluezDevice1* dev = it->second.first.get();
+
+            org_bluez_device1_call_disconnect(
+                dev,
+                nullptr, // cancelable
+                on_device_disconnected,
+                this
+            );
+        }
     }
 
     void writeCharacteristic(const BleDevice& device, const juce::Uuid& charactUuid, gsl::span<const gsl::byte> data, bool withResponse)
@@ -134,13 +161,11 @@ struct BleAdapter::Impl : private juce::ValueTree::Listener {
         {
             LOG(fmt::format("Bluetooth - Failed to connect to device: {}", address));
 
-            connections.erase(address);
+            deviceDisconnected(device);
             return;
         }
 
         LOG(fmt::format("Bluetooth - Device connected: {}", address));
-
-        connections.at(address).first = device;
 
         if (auto ch = valueTree.getChildWithProperty(ID::address, address); ch.isValid())
         {
@@ -153,12 +178,37 @@ struct BleAdapter::Impl : private juce::ValueTree::Listener {
     {
         const auto addr_str = bluez_utils::get_device_address(device);
 
-        if (const auto it = connections.find(addr_str); it != connections.end())
+        LOG(fmt::format("Bluetooth - Device disconnected: {}", addr_str));
+
+        if (const auto conn = connections.find(addr_str); conn != connections.end())
         {
-            connections.erase(it);
+            connections.erase(conn);
 
             if (auto ch = valueTree.getChildWithProperty(ID::address, addr_str); ch.isValid())
+            {
+                for (const auto& s : ch)
+                {
+                    if (s.hasType(ID::SERVICE))
+                    {
+                        for (const auto& c : s)
+                        {
+                            if (c.hasType(ID::CHARACTERISTIC))
+                            {
+                                const juce::String& object_path = c.getProperty(ID::dbus_object_path);
+                                const auto it = std::find_if(notificationHandlers.begin(), notificationHandlers.end(), [&](const auto& nh)
+                                    {
+                                        return std::string_view(g_dbus_proxy_get_object_path(G_DBUS_PROXY(nh.characteristicProxy.get()))) ==
+                                               std::string_view(object_path.getCharPointer());
+                                    });
+
+                                notificationHandlers.erase(it);
+                            }
+                        }
+                    }
+                }
+
                 valueTree.removeChild(ch, nullptr);
+            }
         }
     }
 
@@ -169,72 +219,45 @@ struct BleAdapter::Impl : private juce::ValueTree::Listener {
 
         const auto now = (int) juce::Time::getMillisecondCounter();
 
-        juce::MessageManager::callAsync([this, addr_str, name_str, now, rssi, is_connected]
-            {
-                if (auto ch = valueTree.getChildWithProperty(ID::address, addr_str); ch.isValid())
-                {
-                    ch.setProperty(ID::rssi, rssi, nullptr);
-                    if (name_str.isNotEmpty())
-                        ch.setProperty(ID::name, name_str, nullptr);
+        if (auto ch = valueTree.getChildWithProperty(ID::address, addr_str); ch.isValid())
+        {
+            ch.setProperty(ID::rssi, rssi, nullptr);
+            if (name_str.isNotEmpty())
+                ch.setProperty(ID::name, name_str, nullptr);
 
-                    ch.setProperty(ID::last_seen, now, nullptr);
-                }
-                else
-                {
-                    valueTree.appendChild({ID::BLUETOOTH_DEVICE, {
-                        {ID::name, name_str},
-                        {ID::address, addr_str},
-                        {ID::rssi, rssi},
-                        {ID::is_connected, is_connected},
-                        {ID::last_seen, now}
-                    }}, nullptr);
-                }
-            });
+            ch.setProperty(ID::last_seen, now, nullptr);
+        }
+        else
+        {
+            valueTree.appendChild({ID::BLUETOOTH_DEVICE, {
+                {ID::name, name_str},
+                {ID::address, addr_str},
+                {ID::rssi, rssi},
+                {ID::is_connected, is_connected},
+                {ID::last_seen, now}
+            }}, nullptr);
+        }
     }
 
-     void characteristicValueChanged(const juce::Uuid& uuid, gsl::span<const gsl::byte> value)
+     void characteristicValueChanged(std::string_view object_path, gsl::span<const gsl::byte> data)
      {
-         juce::MessageManager::callAsync([this, uuid, data = std::vector{value.begin(), value.end()}]
-             {
-                 LOG(fmt::format("Bluetooth - DATA: {}", gsl::as_bytes(gsl::make_span(data))));
+        const auto it = std::find_if(notificationHandlers.begin(), notificationHandlers.end(), [&](const auto& nh)
+            {
+                const auto this_path = std::string_view(g_dbus_proxy_get_object_path(G_DBUS_PROXY(nh.characteristicProxy.get()))) ;
+                return this_path == object_path;
+            });
 
-                 // if (auto it = handlers.find(uuid); it != handlers.end())
-                 // {
-                 //     LOG("FOUND");
-                 //     it->second->valueChanged(uuid, gsl::as_bytes(gsl::make_span(data)));
-                 // }
-             });
-     }
+        if (it != notificationHandlers.end())
+        {
+            const auto& [_, uuid, callback] = *it;
+            callback->valueChanged(uuid, data);
+        }
+    }
 
      void characteristicWritten(const juce::Uuid& uuid, bool success)
      {
-         juce::MessageManager::callAsync([this, uuid, success]
-             {
-                 // if (auto it = handlers.find(uuid); it != handlers.end())
-                 //    it->second->characteristicWritten(uuid, success);
-             });
+         // TODO
      }
-
-     // void notificationStateChanged(const gattlib_connection_t* connection, uint16_t handle, bool is_notifying)
-     // {
-     //     const juce::ScopedLock lock(connectionsLock);
-
-     //     const auto it = std::find_if(connections.begin(), connections.end(), [&](const auto& p) { return p.second.first == connection; });
-
-     //     if (it != connections.end())
-     //     {
-     //         const auto& addr = it->first;
-
-     //         for (const auto& srv : valueTree.getChildWithProperty(ID::address, addr))
-     //             if (srv.hasType(ID::SERVICE))
-     //                 for (const auto& ch : srv)
-     //                     if (ch.hasType(ID::CHARACTERISTIC) && static_cast<int>(ch.getProperty(ID::handle)) == handle)
-     //                         juce::MessageManager::callAsync([=]
-     //                             {
-     //                                 genki::message(ch, {ID::NOTIFICATIONS_ARE_ENABLED, {}});
-     //                             });
-     //     }
-     // }
 
      //==================================================================================================================
      void valueTreeChildAdded(ValueTree& parent, ValueTree& child) override
@@ -246,15 +269,11 @@ struct BleAdapter::Impl : private juce::ValueTree::Listener {
 
             if (auto it = connections.find(deviceState.getProperty(ID::address).toString()); it != connections.end())
             {
-                OrgBluezDevice1* device_proxy = it->second.first;
                 const auto& address = it->first;
 
                 const juce::String device_path = bluez_utils::get_device_object_path_from_address(bluezAdapter, address);
 
                 GList* objects = g_dbus_object_manager_get_objects(dbusObjectManager);
-                GDBusObject* device_object = g_dbus_object_manager_get_object(dbusObjectManager, device_path.getCharPointer());
-
-                LOG(fmt::format("Bluetooth - Discover services for device: {}", device_path));
 
                 for (GList* l = objects; l != NULL; l = l->next)
                 {
@@ -302,8 +321,6 @@ struct BleAdapter::Impl : private juce::ValueTree::Listener {
             GList* objects = g_dbus_object_manager_get_objects(dbusObjectManager);
             const juce::String service_path = service.getProperty(ID::dbus_object_path);
 
-            LOG(fmt::format("Bluetooth - Discover characteristics for service: {}", service_path));
-
             for (GList* l = objects; l != NULL; l = l->next)
             {
                 GDBusObject* object = G_DBUS_OBJECT(l->data);
@@ -339,70 +356,94 @@ struct BleAdapter::Impl : private juce::ValueTree::Listener {
         else if (child.hasType(ID::ENABLE_NOTIFICATIONS) || child.hasType(ID::ENABLE_INDICATIONS))
         {
             jassert(parent.hasType(ID::CHARACTERISTIC));
+            auto characteristic = parent;
 
-            const auto& device = getAncestor(child, ID::BLUETOOTH_DEVICE);
+            const auto device = getAncestor(characteristic, ID::BLUETOOTH_DEVICE);
+            jassert(device.isValid());
 
-            // const juce::ScopedLock lock(connectionsLock);
+            const juce::String characteristic_object_path = characteristic.getProperty(ID::dbus_object_path);
+            GDBusObject* obj = g_dbus_object_manager_get_object(dbusObjectManager, characteristic_object_path.getCharPointer());
 
-            // if (auto it = connections.find(device.getProperty(ID::address).toString()); it != connections.end())
-            // {
-            //     auto& [connection, callbacks] = it->second;
+            if (obj != nullptr)
+            {
+                GDBusInterface* interface = g_dbus_object_get_interface(obj, "org.bluez.GattCharacteristic1");
 
-            //     const auto data_handler = [](const uuid_t* uuid, const uint8_t* data, size_t data_length, void* user_data)
-            //     {
-            //         const auto uuid_str = genki::gattlib_utils::get_uuid_string(*uuid);
+                if (interface != nullptr)
+                {
+                    GError* error = nullptr;
 
-            //         reinterpret_cast<Impl*>(user_data)->characteristicValueChanged(juce::Uuid(uuid_str), gsl::as_bytes(gsl::span(data, data_length)));
-            //     };
+                    OrgBluezGattCharacteristic1* char_proxy = org_bluez_gatt_characteristic1_proxy_new_sync(
+                        g_dbus_proxy_get_connection(G_DBUS_PROXY(interface)),
+                        G_DBUS_PROXY_FLAGS_NONE,
+                        "org.bluez",
+                        g_dbus_proxy_get_object_path(G_DBUS_PROXY(interface)),
+                        nullptr,
+                        &error
+                    );
 
-            //     const auto state_change_handler = [](gattlib_connection_t* conn, uint16_t handle, bool is_notifying, void* user_data)
-            //     {
-            //         reinterpret_cast<Impl*>(user_data)->notificationStateChanged(conn, handle, is_notifying);
-            //     };
+                    const auto on_notify_ready = [](GObject* source_object, GAsyncResult* res, gpointer user_data)
+                    {
+                        GError* err = nullptr;
 
-            //     gattlib_register_notification_state_change(connection, state_change_handler, this);
+                        OrgBluezGattCharacteristic1* charact = ORG_BLUEZ_GATT_CHARACTERISTIC1(source_object);
+                        auto* p = reinterpret_cast<BleAdapter::Impl*>(user_data);
 
-            //     {
-            //         const auto register_func = child.hasType(ID::ENABLE_NOTIFICATIONS)
-            //                                     ? &gattlib_register_notification
-            //                                     : &gattlib_register_indication;
+                        const auto uuid = juce::Uuid(org_bluez_gatt_characteristic1_get_uuid(charact));
 
-            //         [[maybe_unused]] const auto ret = register_func(connection, data_handler, this);
-            //         jassert(ret == GATTLIB_SUCCESS);
-            //     }
+                        if (!org_bluez_gatt_characteristic1_call_start_notify_finish(charact, res, &err))
+                        {
+                            LOG(fmt::format("Bluetooth - Error enabling notifications for characteristic: {} - {}\n", uuid.toDashedString(), err->message));
 
-            //     {
-            //         const auto juce_uuid = juce::Uuid(parent.getProperty(ID::uuid).toString());
-            //         const auto uuid = genki::gattlib_utils::from_juce_uuid(juce_uuid);
+                            g_error_free(err);
+                            return;
+                        }
 
-            //         handlers.insert_or_assign(juce_uuid, &callbacks);
+                        const char* object_path = g_dbus_proxy_get_object_path(G_DBUS_PROXY(charact));
 
-            //         LOG(fmt::format("Bluetooth - Enable notifications for UUID: {}", juce_uuid.toDashedString()));
+                        if (const auto& ch = findChildWithProperty(p->valueTree, ID::dbus_object_path, object_path); ch.isValid())
+                        {
+                            const auto& dev = getAncestor(ch, ID::BLUETOOTH_DEVICE);
 
-            //         [[maybe_unused]] const auto ret = gattlib_notification_start(connection, &uuid);
-            //         jassert(ret == GATTLIB_SUCCESS);
-            //     }
-            // }
+                            if (const auto it = p->connections.find(dev.getProperty(ID::address)); it != p->connections.end())
+                            {
+                                const auto& callbacks = it->second.second;
+
+                                p->notificationHandlers.insert(NotificationHandler{
+                                    .characteristicProxy = CharacteristicProxy(charact, g_object_unref),
+                                    .uuid = uuid,
+                                    .callbacks = &callbacks,
+                                });
+                            }
+
+                            genki::message(ch, {ID::NOTIFICATIONS_ARE_ENABLED, {}});
+                        }
+                    };
+
+                    org_bluez_gatt_characteristic1_call_start_notify(
+                        char_proxy,
+                        nullptr, // cancelable
+                        on_notify_ready,
+                        this
+                    );
+                }
+            }
         }
         else if (child.hasType(ID::SCAN))
         {
             if (child.getProperty(ID::should_start))
             {
-                LOG("Bluetooth - Starting scan...");
-                using namespace ranges;
-
                 const auto rng       = ValueTreeRange(child);
-                const auto uuid_strs = rng | views::transform(property_as<String>(ID::uuid));
+                const auto uuid_strs = rng | ranges::views::transform(property_as<String>(ID::uuid));
 
-                LOG(fmt::format("Bluetooth - Starting scan for services:\n{}",
-                        uuid_strs
-                        | views::transform(to_string_view)
-                        | views::join('\n')
-                        | to<std::string>())
-                );
-
-                if (distance(uuid_strs) > 0)
+                if (ranges::distance(uuid_strs) > 0)
                 {
+                    LOG(fmt::format("Bluetooth - Starting scan for services:\n{}",
+                            uuid_strs
+                            | ranges::views::transform(to_string_view)
+                            | ranges::views::join('\n')
+                            | ranges::to<std::string>())
+                    );
+
                     GVariantBuilder props_builder{};
                     g_variant_builder_init(&props_builder, G_VARIANT_TYPE("a{sv}"));
 
@@ -428,14 +469,16 @@ struct BleAdapter::Impl : private juce::ValueTree::Listener {
                         LOG(fmt::format("Bluetooth - Failed to set discovery filter: {}", error->message));
                     }
                 }
-
+                else
                 {
-                    GError* error = nullptr;
-                    if (!org_bluez_adapter1_call_start_discovery_sync(bluezAdapter, nullptr, &error))
-                    {
-                        LOG(fmt::format("Bluetooth - Failed to start discovery: {}", error->message));
-                        g_error_free(error);
-                    }
+                    LOG("Bluetooth - Starting scan...");
+                }
+
+                GError* error = nullptr;
+                if (!org_bluez_adapter1_call_start_discovery_sync(bluezAdapter, nullptr, &error))
+                {
+                    LOG(fmt::format("Bluetooth - Failed to start discovery: {}", error->message));
+                    g_error_free(error);
                 }
             }
             else
@@ -444,7 +487,10 @@ struct BleAdapter::Impl : private juce::ValueTree::Listener {
 
                 GError* error = nullptr;
                 if (!org_bluez_adapter1_call_stop_discovery_sync(bluezAdapter, nullptr, &error))
+                {
                     LOG(fmt::format("Bluetooth - Failed to stop scan: {}", error->message));
+                    g_error_free(error);
+                }
             }
         }
         else if (child.hasType(ID::BLUETOOTH_DEVICE))
@@ -463,27 +509,12 @@ struct BleAdapter::Impl : private juce::ValueTree::Listener {
 
         if (interface != nullptr)
         {
-            GError* error = nullptr;
-            OrgBluezDevice1* device = org_bluez_device1_proxy_new_for_bus_sync(
-                G_BUS_TYPE_SYSTEM,
-                G_DBUS_PROXY_FLAGS_NONE,
-                "org.bluez",
-                object_path,
-                nullptr,
-                &error
-            );
+            const DeviceProxy device = bluez_utils::get_device_from_object_path(object_path);
 
-            if (error != nullptr)
-            {
-                LOG(fmt::format("Bluetooth - D-Bus error: {}", error->message));
-                g_error_free(error);
-                return;
-            }
-
-            const char* addr = org_bluez_device1_get_address(device);
-            const char* name = org_bluez_device1_get_name(device);
-            const auto rssi = static_cast<int16_t>(org_bluez_device1_get_rssi(device));
-            const bool is_connected = org_bluez_device1_get_connected(device);
+            const char* addr = org_bluez_device1_get_address(device.get());
+            const char* name = org_bluez_device1_get_name(device.get());
+            const auto rssi = static_cast<int16_t>(org_bluez_device1_get_rssi(device.get()));
+            const bool is_connected = org_bluez_device1_get_connected(device.get());
 
             deviceDiscovered(addr ? addr : "", name ? name : "", rssi, is_connected);
         }
@@ -497,7 +528,7 @@ struct BleAdapter::Impl : private juce::ValueTree::Listener {
         if (interface_name == "org.bluez.Device1")
         {
             if (g_variant_n_children(changed_properties) > 0) {
-                OrgBluezDevice1* device = bluez_utils::get_device_from_object_path(proxy_object_path);
+                DeviceProxy device = bluez_utils::get_device_from_object_path(proxy_object_path);
 
                 GVariantIter* iter = nullptr;
                 g_variant_get(changed_properties, "a{sv}", &iter);
@@ -513,24 +544,20 @@ struct BleAdapter::Impl : private juce::ValueTree::Listener {
                         LOG(fmt::format("Bluetooth - Device state changed: {}", is_connected ? "Connected" : "Disconnected"));
 
                         if (!is_connected)
-                            deviceDisconnected(device);
+                            deviceDisconnected(device.get());
                     }
                     else if (strcmp(key, "ServicesResolved") == 0)
                     {
-                        LOG(fmt::format("Services resolved1"));
-
                         if (g_variant_get_boolean(value))
-                        {
-                            deviceConnected(device, true);
-                        }
+                            deviceConnected(device.get(), true);
                     }
                     else if (strcmp(key, "RSSI") == 0)
                     {
                         const auto rssi = static_cast<int16_t>(g_variant_get_int16(value));
 
-                        const char* addr = org_bluez_device1_get_address(device);
-                        const char* name = org_bluez_device1_get_name(device);
-                        const bool is_connected = org_bluez_device1_get_connected(device);
+                        const char* addr = org_bluez_device1_get_address(device.get());
+                        const char* name = org_bluez_device1_get_name(device.get());
+                        const bool is_connected = org_bluez_device1_get_connected(device.get());
 
                         deviceDiscovered(addr ? addr : "", name ? name : "", rssi, is_connected);
                     }
@@ -541,27 +568,31 @@ struct BleAdapter::Impl : private juce::ValueTree::Listener {
         }
         else if (interface_name == "org.bluez.GattCharacteristic1")
         {
-            LOG("Characteristic properties changed...");
+            if (g_variant_n_children(changed_properties) > 0) {
+                GVariantIter* iter = nullptr;
+                g_variant_get(changed_properties, "a{sv}", &iter);
+
+                const gchar* key = nullptr;
+                GVariant* value = nullptr;
+
+                while (g_variant_iter_loop(iter, "{&sv}", &key, &value))
+                {
+                    if (strcmp(key, "Value") == 0)
+                    {
+                        const uint8_t* data = nullptr;
+                        gsize data_len = 0;
+                        data = static_cast<const uint8_t*>(g_variant_get_fixed_array(value, &data_len, sizeof(uint8_t)));
+
+                        characteristicValueChanged(
+                            std::string_view(proxy_object_path),
+                            gsl::as_bytes(gsl::span(data, static_cast<size_t>(data_len)))
+                        );
+                    }
+                }
+
+                g_variant_iter_free(iter);
+            }
         }
-
-        //     GVariantDict dict = {};
-      		// g_variant_dict_init(&dict, changed_properties);
-
-        //     if (GVariant* rssi_v = g_variant_dict_lookup_value(&dict, "RSSI", G_VARIANT_TYPE_INT16); rssi_v != nullptr)
-        //     {
-        //         const auto rssi = static_cast<int16_t>(g_variant_get_int16(rssi_v));
-
-        //         const char* addr = org_bluez_device1_get_address(device);
-        //         const char* name = org_bluez_device1_get_name(device);
-        //         const bool is_connected = org_bluez_device1_get_connected(device);
-
-        //         deviceDiscovered(addr ? addr : "", name ? name : "", rssi, is_connected);
-
-        //         g_variant_unref(rssi_v);
-        //     }
-
-        //     g_variant_dict_clear(&dict);
-        // }
     }
 
     void initializeObjectManager()
@@ -615,7 +646,22 @@ struct BleAdapter::Impl : private juce::ValueTree::Listener {
     //==================================================================================================================
     juce::ValueTree valueTree;
 
-    std::map<juce::String, std::pair<OrgBluezDevice1*, genki::BleDevice::Callbacks>> connections;
+    std::map<juce::String, std::pair<DeviceProxy, BleDevice::Callbacks>> connections;
+
+    struct NotificationHandler {
+        CharacteristicProxy characteristicProxy;
+        const juce::Uuid uuid;
+        const genki::BleDevice::Callbacks* callbacks;
+
+        bool operator<(const NotificationHandler& rhs) const {
+            return std::strcmp(
+                g_dbus_proxy_get_object_path(G_DBUS_PROXY(characteristicProxy.get())),
+                g_dbus_proxy_get_object_path(G_DBUS_PROXY(rhs.characteristicProxy.get()))
+            ) < 0;
+        }
+    };
+
+    std::set<NotificationHandler> notificationHandlers;
 
     OrgBluezAdapter1* bluezAdapter = nullptr;
     GDBusObjectManager* dbusObjectManager = nullptr;
@@ -672,8 +718,11 @@ BleAdapter::Impl::~Impl()
 {
     if (bluezAdapter != nullptr)
     {
-        g_object_unref(bluezAdapter);
-        g_object_unref(dbusObjectManager);
+        if (bluezAdapter != nullptr)
+            g_object_unref(bluezAdapter);
+
+        if (dbusObjectManager != nullptr)
+            g_object_unref(dbusObjectManager);
     }
 }
 

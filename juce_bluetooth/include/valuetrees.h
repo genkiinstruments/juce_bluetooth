@@ -14,6 +14,20 @@ inline juce::ValueTree getAncestor(const juce::ValueTree& vt, const juce::Identi
             getAncestor(vt.getParent(), ancestorType));
 }
 
+inline juce::ValueTree findChildWithProperty(const juce::ValueTree& vt, const juce::Identifier& id, const juce::var& value)
+{
+    for (const auto& ch : vt)
+    {
+        if (ch.hasProperty(id) && ch.getProperty(id) == value)
+            return ch;
+
+        if (const auto& res = findChildWithProperty(ch, id, value); res.isValid())
+            return res;
+    }
+
+    return juce::ValueTree();
+}
+
 //======================================================================================================================
 struct ValueTreeListener : juce::ValueTree::Listener
 {
