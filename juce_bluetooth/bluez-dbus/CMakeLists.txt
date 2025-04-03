@@ -16,26 +16,28 @@ set(BLUEZ_INTERFACES
 set(GENERATED_SOURCES "")
 set(GENERATED_HEADERS "")
 
-# Generate D-Bus interfaces from XML
 foreach(interface ${BLUEZ_INTERFACES})
     set(output_base "${CMAKE_CURRENT_BINARY_DIR}/org-bluez-${interface}")
     set(input_xml "${CMAKE_CURRENT_SOURCE_DIR}/dbus-bluez-v5.48/org.bluez.${interface}.xml")
 
-    add_custom_command(
-        OUTPUT "${output_base}.c" "${output_base}.h"
+    # Execute gdbus-codegen immediately
+    execute_process(
         COMMAND gdbus-codegen
                 --interface-prefix "org.bluez.${interface}."
                 --generate-c-code "${output_base}"
                 "${input_xml}"
-        DEPENDS "${input_xml}"
-        COMMENT "Generating D-Bus interface for org.bluez.${interface}"
+        RESULT_VARIABLE result
+        ERROR_VARIABLE error_output
     )
 
-    list(APPEND GENERATED_SOURCES "${output_base}.c" "${output_base}.h")
-endforeach()
+    # Check for errors
+    if(NOT result EQUAL 0)
+        message(FATAL_ERROR "Failed to generate D-Bus interface for ${interface}: ${error_output}")
+    endif()
 
-# Make sure the sources actually get generated
-add_custom_target(bluez_dbus_generated_sources DEPENDS ${GENERATED_SOURCES})
+    list(APPEND GENERATED_SOURCES "${output_base}.c")
+    list(APPEND GENERATED_HEADERS "${output_base}.h")
+endforeach()
 
 # Disable warnings for generated files
 foreach(source ${GENERATED_SOURCES})
