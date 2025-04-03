@@ -90,6 +90,8 @@ struct BleAdapter::Impl : private juce::ValueTree::Listener {
     {
         const auto addr = device.state.getProperty(ID::address).toString();
 
+        clearCharacteristicCacheForDevice(addr);
+
         if (const auto it = connections.find(addr); it != connections.end())
         {
             LOG(fmt::format("Bluetooth - Disconnect device: {}", addr));
@@ -138,21 +140,28 @@ struct BleAdapter::Impl : private juce::ValueTree::Listener {
                         GError* err = nullptr;
 
                         OrgBluezGattCharacteristic1* charact = ORG_BLUEZ_GATT_CHARACTERISTIC1(source_object);
-                        [[maybe_unused]] auto* p = reinterpret_cast<BleAdapter::Impl*>(user_data);
+                        auto* p = reinterpret_cast<BleAdapter::Impl*>(user_data);
 
-                        const auto uuid = juce::Uuid(org_bluez_gatt_characteristic1_get_uuid(charact));
+                        const auto& cc = p->characteristicCache;
 
-                        if (!org_bluez_gatt_characteristic1_call_start_notify_finish(charact, res, &err))
+                        const char* object_path = g_dbus_proxy_get_object_path(G_DBUS_PROXY(charact));
+
+                        const auto it = std::find_if(cc.begin(), cc.end(), [&](const auto& ent) { return ent.dbusObjectPath.compare(object_path) == 0; });
+
+                        bool success = org_bluez_gatt_characteristic1_call_start_notify_finish(charact, res, &err);
+
+                        if (!success)
                         {
+                            const auto uuid = juce::Uuid(std::string_view(org_bluez_gatt_characteristic1_get_uuid(charact)));
                             LOG(fmt::format("Bluetooth - Error writing characteristic: {} - {}\n", uuid.toDashedString(), err->message));
 
                             g_error_free(err);
-                            return;
                         }
 
-                        g_object_unref(charact);
+                        if (it != cc.end())
+                            it->callbacks->characteristicWritten(it->uuid, success);
 
-                        // TODO: Write-complete callback
+                        g_object_unref(charact);
                     };
 
                     GError* error = nullptr;
@@ -169,6 +178,7 @@ struct BleAdapter::Impl : private juce::ValueTree::Listener {
                     if (error != nullptr)
                     {
                         LOG(fmt::format("Bluetooth - Failed to get D-Bus proxy for characteristic: {}", error->message));
+                        g_error_free(error);
                     }
 
                     GVariant* arg_value = g_variant_new_fixed_array(G_VARIANT_TYPE_BYTE, data.data(), data.size(), sizeof(gsl::byte));
@@ -224,34 +234,39 @@ struct BleAdapter::Impl : private juce::ValueTree::Listener {
         {
             connections.erase(conn);
 
-            if (auto ch = valueTree.getChildWithProperty(ID::address, addr_str); ch.isValid())
-            {
-                for (const auto& s : ch)
-                {
-                    if (s.hasType(ID::SERVICE))
-                    {
-                        for (const auto& c : s)
-                        {
-                            if (c.hasType(ID::CHARACTERISTIC))
-                            {
-                                const juce::String& object_path = c.getProperty(ID::dbus_object_path);
-                                const auto it = std::find_if(notificationHandlers.begin(), notificationHandlers.end(), [&](const auto& nh)
-                                    {
-                                        return std::string_view(g_dbus_proxy_get_object_path(G_DBUS_PROXY(nh.characteristicProxy.get()))) ==
-                                               std::string_view(object_path.getCharPointer());
-                                    });
-
-                                notificationHandlers.erase(it);
-                            }
-                        }
-                    }
-                }
-
-                valueTree.removeChild(ch, nullptr);
-            }
+            clearCharacteristicCacheForDevice(addr_str);
         }
     }
 
+    void clearCharacteristicCacheForDevice(const juce::String& address)
+    {
+        if (auto dev = valueTree.getChildWithProperty(ID::address, address); dev.isValid())
+        {
+            for (const auto& srv : dev)
+            {
+                if (srv.hasType(ID::SERVICE))
+                {
+                    for (const auto& ch : srv)
+                    {
+                        if (ch.hasType(ID::CHARACTERISTIC))
+                        {
+                            const juce::String& object_path = ch.getProperty(ID::dbus_object_path);
+
+                            const auto it = std::find_if(characteristicCache.begin(), characteristicCache.end(), [&](const auto& ent)
+                                {
+                                    return ent.dbusObjectPath.compare(object_path) == 0;
+                                });
+
+                            if (it != characteristicCache.end())
+                                characteristicCache.erase(it);
+                        }
+                    }
+                }
+            }
+
+            valueTree.removeChild(dev, nullptr);
+        }
+    }
     void deviceDiscovered(std::string_view addr, std::string_view name, int16_t rssi, bool is_connected)
     {
         const auto addr_str     = bluez_utils::get_address_string(addr.data());
@@ -273,7 +288,7 @@ struct BleAdapter::Impl : private juce::ValueTree::Listener {
                 {ID::name, name_str},
                 {ID::address, addr_str},
                 {ID::rssi, rssi},
-                {ID::is_connected, is_connected},
+                {ID::is_connected, false},
                 {ID::last_seen, now}
             }}, nullptr);
         }
@@ -281,15 +296,14 @@ struct BleAdapter::Impl : private juce::ValueTree::Listener {
 
      void characteristicValueChanged(std::string_view object_path, gsl::span<const gsl::byte> data)
      {
-        const auto it = std::find_if(notificationHandlers.begin(), notificationHandlers.end(), [&](const auto& nh)
+         const auto it = std::find_if(characteristicCache.begin(), characteristicCache.end(), [&](const auto& ent)
             {
-                const auto this_path = std::string_view(g_dbus_proxy_get_object_path(G_DBUS_PROXY(nh.characteristicProxy.get()))) ;
-                return this_path == object_path;
+                return ent.dbusObjectPath.compare(object_path.data()) == 0;
             });
 
-        if (it != notificationHandlers.end())
+         if (it != characteristicCache.end())
         {
-            const auto& [_, uuid, callback] = *it;
+            [[maybe_unused]] const auto& [_, uuid, callback, obj_path] = *it;
             callback->valueChanged(uuid, data);
         }
     }
@@ -330,7 +344,7 @@ struct BleAdapter::Impl : private juce::ValueTree::Listener {
 
                             if (uuid_variant != nullptr)
                             {
-                                const juce::Uuid uuid(g_variant_get_string(uuid_variant, nullptr));
+                                const juce::Uuid uuid(std::string_view(g_variant_get_string(uuid_variant, nullptr)));
 
                                 deviceState.appendChild({ID::SERVICE, {
                                     {ID::uuid, uuid.toDashedString()},
@@ -376,7 +390,7 @@ struct BleAdapter::Impl : private juce::ValueTree::Listener {
 
                         if (uuid_variant != nullptr)
                         {
-                            const juce::Uuid uuid(g_variant_get_string(uuid_variant, nullptr));
+                            const juce::Uuid uuid(std::string_view(g_variant_get_string(uuid_variant, nullptr)));
 
                             service.appendChild({ID::CHARACTERISTIC, {
                                 {ID::uuid, uuid.toDashedString()},
@@ -428,7 +442,7 @@ struct BleAdapter::Impl : private juce::ValueTree::Listener {
                         OrgBluezGattCharacteristic1* charact = ORG_BLUEZ_GATT_CHARACTERISTIC1(source_object);
                         auto* p = reinterpret_cast<BleAdapter::Impl*>(user_data);
 
-                        const auto uuid = juce::Uuid(org_bluez_gatt_characteristic1_get_uuid(charact));
+                        const auto uuid = juce::Uuid(std::string_view(org_bluez_gatt_characteristic1_get_uuid(charact)));
 
                         if (!org_bluez_gatt_characteristic1_call_start_notify_finish(charact, res, &err))
                         {
@@ -448,11 +462,7 @@ struct BleAdapter::Impl : private juce::ValueTree::Listener {
                             {
                                 const auto& callbacks = it->second.second;
 
-                                p->notificationHandlers.insert(NotificationHandler{
-                                    .characteristicProxy = CharacteristicProxy(charact, g_object_unref),
-                                    .uuid = uuid,
-                                    .callbacks = &callbacks,
-                                });
+                                p->characteristicCache.emplace(charact, uuid, callbacks);
                             }
 
                             genki::message(ch, {ID::NOTIFICATIONS_ARE_ENABLED, {}});
@@ -747,20 +757,26 @@ struct BleAdapter::Impl : private juce::ValueTree::Listener {
 
     std::map<juce::String, std::pair<DeviceProxy, BleDevice::Callbacks>> connections;
 
-    struct NotificationHandler {
+    struct CharacteristicCacheEntry {
+        CharacteristicCacheEntry(OrgBluezGattCharacteristic1* charact, juce::Uuid uuid, const genki::BleDevice::Callbacks& cbs)
+            : characteristicProxy(charact, g_object_unref),
+              uuid(std::move(uuid)),
+              callbacks(&cbs),
+              dbusObjectPath(g_dbus_proxy_get_object_path(G_DBUS_PROXY(characteristicProxy.get())))
+        {
+        }
+
         CharacteristicProxy characteristicProxy;
         const juce::Uuid uuid;
         const genki::BleDevice::Callbacks* callbacks;
+        const juce::String dbusObjectPath;
 
-        bool operator<(const NotificationHandler& rhs) const {
-            return std::strcmp(
-                g_dbus_proxy_get_object_path(G_DBUS_PROXY(characteristicProxy.get())),
-                g_dbus_proxy_get_object_path(G_DBUS_PROXY(rhs.characteristicProxy.get()))
-            ) < 0;
+        bool operator<(const CharacteristicCacheEntry& rhs) const {
+            return dbusObjectPath.compare(rhs.dbusObjectPath) < 0;
         }
     };
 
-    std::set<NotificationHandler> notificationHandlers;
+    std::set<CharacteristicCacheEntry> characteristicCache;
 
     OrgBluezAdapter1* bluezAdapter = nullptr;
     GDBusObjectManager* dbusObjectManager = nullptr;
@@ -857,8 +873,6 @@ size_t BleAdapter::getMaximumValueLength(const BleDevice&)
 //======================================================================================================================
 void BleDevice::write(BleAdapter& adapter, const Uuid& uuid, gsl::span<const gsl::byte> data, bool withResponse)
 {
-    LOG(fmt::format("WRITE {} {}", uuid.toDashedString(), data));
-
     adapter.impl->writeCharacteristic(*this, uuid, data, withResponse);
 }
 
