@@ -49,6 +49,8 @@ jobs:
       - name: Install Nix
         uses: DeterminateSystems/nix-installer-action@main
 
+      - run: nix flake check -L --all-systems
+
       - name: Configure and Build (Nix)
         run: |
           nix develop --command cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DJUCE_BLUETOOTH_BUILD_EXAMPLES=ON -DCPM_SOURCE_CACHE=build
