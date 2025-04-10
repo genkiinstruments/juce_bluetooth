@@ -50,6 +50,8 @@ if (UNIX AND NOT APPLE)
 
     add_subdirectory(juce_bluetooth/bluez-dbus)
     target_link_libraries(${PROJECT_NAME} INTERFACE bluez-dbus)
+
+    target_compile_options(${PROJECT_NAME} INTERFACE $<$<COMPILE_LANGUAGE:C>:-w>)
 endif ()
 
 option(JUCE_BLUETOOTH_BUILD_EXAMPLES OFF "Enable juce_bluetooth example builds")

@@ -660,7 +660,7 @@ struct BleAdapter::Impl : private juce::ValueTree::Listener
         {
             // Note: Need to be explicit to please the C
             using ObjectAddedFn                 = void (*)(GDBusObjectManager*, GDBusObject*, gpointer);
-            const ObjectAddedFn on_object_added = [](auto* manager, auto* object, auto user_data)
+            const ObjectAddedFn on_object_added = []([[maybe_unused]] auto* manager, auto* object, auto user_data)
             {
                 auto* p = reinterpret_cast<BleAdapter::Impl*>(user_data);
                 jassert(manager == p->dbusObjectManager);
@@ -671,7 +671,7 @@ struct BleAdapter::Impl : private juce::ValueTree::Listener
             g_signal_connect(G_DBUS_OBJECT_MANAGER(dbusObjectManager), "object-added", G_CALLBACK(on_object_added), this);
 
             using PropertiesChangedFn                                       = void (*)(GDBusObjectManager*, GDBusObjectProxy*, GDBusProxy*, GVariant*, const gchar* const*, gpointer);
-            const PropertiesChangedFn on_interface_proxy_properties_changed = [](auto* manager, auto*, auto* interface_proxy, auto* changed_properties, auto invalidated_properties, auto user_data)
+            const PropertiesChangedFn on_interface_proxy_properties_changed = []([[maybe_unused]] auto* manager, auto*, auto* interface_proxy, auto* changed_properties, auto invalidated_properties, auto user_data)
             {
                 auto* p = reinterpret_cast<BleAdapter::Impl*>(user_data);
                 jassert(manager == p->dbusObjectManager);
