@@ -153,7 +153,7 @@ struct BleAdapter::Impl : private juce::ValueTree::Listener
 
                         if (!success)
                         {
-                            const auto uuid = juce::Uuid(std::string_view(org_bluez_gatt_characteristic1_get_uuid(charact)));
+                            const auto uuid = juce::Uuid(juce::String(org_bluez_gatt_characteristic1_get_uuid(charact)));
                             LOG(fmt::format("Bluetooth - Error writing characteristic: {} - {}\n", uuid.toDashedString(), err->message));
 
                             g_error_free(err);
@@ -333,7 +333,7 @@ struct BleAdapter::Impl : private juce::ValueTree::Listener
 
                             if (uuid_variant != nullptr)
                             {
-                                const juce::Uuid uuid(std::string_view(g_variant_get_string(uuid_variant, nullptr)));
+                                const juce::Uuid uuid(juce::String(g_variant_get_string(uuid_variant, nullptr)));
 
                                 deviceState.appendChild({ID::SERVICE, {
                                                                               {ID::uuid, uuid.toDashedString()},
@@ -381,7 +381,7 @@ struct BleAdapter::Impl : private juce::ValueTree::Listener
 
                         if (uuid_variant != nullptr)
                         {
-                            const juce::Uuid uuid(std::string_view(g_variant_get_string(uuid_variant, nullptr)));
+                            const juce::Uuid uuid(juce::String(g_variant_get_string(uuid_variant, nullptr)));
 
                             service.appendChild({ID::CHARACTERISTIC, {
                                                                              {ID::uuid, uuid.toDashedString()},
@@ -434,7 +434,7 @@ struct BleAdapter::Impl : private juce::ValueTree::Listener
                         OrgBluezGattCharacteristic1* charact = ORG_BLUEZ_GATT_CHARACTERISTIC1(source_object);
                         auto*                        p       = reinterpret_cast<BleAdapter::Impl*>(user_data);
 
-                        const auto uuid = juce::Uuid(std::string_view(org_bluez_gatt_characteristic1_get_uuid(charact)));
+                        const auto uuid = juce::Uuid(juce::String(org_bluez_gatt_characteristic1_get_uuid(charact)));
 
                         if (!org_bluez_gatt_characteristic1_call_start_notify_finish(charact, res, &err))
                         {
