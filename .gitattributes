@@ -1,0 +1,2 @@
+# Force Git to store and checkout the patch file exactly as-is
+*.patch -text
