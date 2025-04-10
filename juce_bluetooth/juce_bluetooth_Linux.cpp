@@ -264,7 +264,7 @@ struct BleAdapter::Impl : private juce::ValueTree::Listener
             valueTree.removeChild(dev, nullptr);
         }
     }
-    void deviceDiscovered(std::string_view addr, std::string_view name, int16_t rssi, bool is_connected)
+    void deviceDiscovered(std::string_view addr, std::string_view name, int16_t rssi, [[maybe_unused]] bool is_connected)
     {
         const auto addr_str = bluez_utils::get_address_string(addr.data());
         const auto name_str = juce::String(name.data());
@@ -746,9 +746,9 @@ struct BleAdapter::Impl : private juce::ValueTree::Listener
 
     struct CharacteristicCacheEntry
     {
-        CharacteristicCacheEntry(OrgBluezGattCharacteristic1* charact, juce::Uuid uuid, const genki::BleDevice::Callbacks& cbs)
+        CharacteristicCacheEntry(OrgBluezGattCharacteristic1* charact, juce::Uuid u, const genki::BleDevice::Callbacks& cbs)
             : characteristicProxy(charact, g_object_unref),
-              uuid(std::move(uuid)),
+              uuid(std::move(u)),
               callbacks(&cbs),
               dbusObjectPath(g_dbus_proxy_get_object_path(G_DBUS_PROXY(characteristicProxy.get())))
         {
