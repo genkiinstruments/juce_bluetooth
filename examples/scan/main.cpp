@@ -1,13 +1,17 @@
 #include "juce_bluetooth/juce_bluetooth.h"
-#include <fmt/format.h>
+
 #include <atomic>
 #include <csignal>
 
+#include "format.h"
+
 std::atomic_bool term = false;
-static void signal_handler(int) { term.store(true); }
+static void      signal_handler(int) { term.store(true); }
 
 int main()
 {
+    fmt::print("JUCE Bluetooth Example - scan\n");
+
     for (const auto& signum: {SIGTERM, SIGINT})
         std::signal(signum, signal_handler);
 
@@ -20,11 +24,11 @@ int main()
     {
         if (vt.hasType(ID::BLUETOOTH_ADAPTER) && id == ID::status)
         {
-            const auto is_powered_on = AdapterStatus((int) vt.getProperty(id)) == AdapterStatus::PoweredOn;
+            const auto is_powered_on = adapter.status() == AdapterStatus::PoweredOn;
 
             fmt::print("{}\n", is_powered_on
-                               ? "Adapter powered on, starting scan..."
-                               : "Adapter powered off/disabled, stopping scan...");
+                                       ? "Adapter powered on, starting scan..."
+                                       : "Adapter powered off/disabled, stopping scan...");
 
             adapter.scan(is_powered_on);
         }
@@ -33,9 +37,9 @@ int main()
             if (vt.getProperty(ID::name).toString().isNotEmpty())
             {
                 fmt::print("{} {} - rssi: {}\n",
-                        vt.getProperty(ID::name).toString().toStdString(),
-                        vt.getProperty(ID::address).toString().toStdString(),
-                        (int) vt.getProperty(ID::rssi));
+                           vt.getProperty(ID::name).toString().toStdString(),
+                           vt.getProperty(ID::address).toString().toStdString(),
+                           (int) vt.getProperty(ID::rssi));
             }
         }
     };

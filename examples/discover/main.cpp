@@ -11,7 +11,7 @@ static void      signal_handler(int) { term.store(true); }
 
 int main()
 {
-    fmt::print("JUCE Bluetooth Example - HRS\n");
+    fmt::print("JUCE Bluetooth Example - Discover\n");
 
     for (const auto& signum: {SIGTERM, SIGINT})
         std::signal(signum, signal_handler);
@@ -21,17 +21,6 @@ int main()
     genki::BleAdapter               adapter;
     genki::ValueTreeListener        listener{adapter.state};
     std::optional<genki::BleDevice> device;
-
-    const genki::BleDevice::Callbacks ble_callbacks{
-            .valueChanged = [](const juce::Uuid&, [[maybe_unused]] gsl::span<const gsl::byte> data)
-            {
-                // Step 6: Notifications from the device will be received here
-                DBG(fmt::format("HRS notification: {}", data)); },
-            .characteristicWritten = [](const juce::Uuid, bool) {},
-    };
-
-    const juce::Uuid HeartRateServiceUuid("0000-180D-8000-00805F9B34FB");
-    const juce::Uuid HeartRateCharacteristicUuid("0000-2A37-8000-00805F9B34FB");
 
     // Used to identify our device during discovery
     const auto my_device_name = "wave";
@@ -73,7 +62,12 @@ int main()
             {
                 // Step 2: Connect to the device.
                 //         The returned device object can be used to write/disconnect from the device later on.
-                device = adapter.connect(vt, ble_callbacks);
+                device = adapter.connect(vt, genki::BleDevice::Callbacks{
+                                                     .valueChanged          = [](const juce::Uuid&, gsl::span<const gsl::byte>) {},
+                                                     .characteristicWritten = [](const juce::Uuid, bool) {},
+                                             });
+
+                adapter.scan(false);
             }
         }
         else if (vt.hasType(ID::SERVICES_DISCOVERED))
@@ -81,18 +75,28 @@ int main()
             const auto dev = vt.getParent(); // dev should be the same node as device->state
             jassert(dev.hasType(ID::BLUETOOTH_DEVICE));
 
-            // Step 4: Discover characteristics on the service we're interested in
-            if (const auto srv = dev.getChildWithProperty(ID::uuid, HeartRateServiceUuid.toDashedString()); srv.isValid())
-            {
-                genki::message(srv, ID::DISCOVER_CHARACTERISTICS);
-            }
+            // Step 4: Discover characteristics on the services
+            for (const auto& child: dev)
+                if (child.hasType(ID::SERVICE))
+                    genki::message(child, ID::DISCOVER_CHARACTERISTICS);
         }
         else if (vt.hasType(ID::CHARACTERISTIC))
         {
-            // Step 5: Once we've found the characteristic, we can enable notfications on it
-            if (juce::Uuid(vt.getProperty(ID::uuid).toString()) == HeartRateCharacteristicUuid)
+            // Step 5: This is where we'll know which characteristics are available on the device
+            fmt::print("Characteristic added: {}", vt);
+        }
+    };
+
+    listener.child_removed = [&](juce::ValueTree&, juce::ValueTree& vt, int)
+    {
+        if (vt.hasType(ID::BLUETOOTH_DEVICE))
+        {
+            if (device.has_value() && device->state.getProperty(ID::address).toString() == vt.getProperty(ID::address).toString())
             {
-                genki::message(vt, ID::ENABLE_NOTIFICATIONS);
+                fmt::print("Device disconnected:\n{}\n", vt);
+
+                device.reset();
+                adapter.scan(true);
             }
         }
     };

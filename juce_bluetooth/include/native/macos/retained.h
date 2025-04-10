@@ -17,15 +17,18 @@ struct Retained
             instance = static_cast<T>(CFRetain(t));
     }
 
-    ~Retained() { if (instance != nil) CFRelease(instance); }
+    ~Retained()
+    {
+        if (instance != nil) CFRelease(instance);
+    }
 
     // Copy constructor - retain count increased
-    Retained(const Retained& r) noexcept: Retained(r.instance) {}
+    Retained(const Retained& r) noexcept : Retained(r.instance) {}
 
     // Move constructor - retain count not increased
     Retained(Retained&& r) noexcept
     {
-        instance = r.instance;
+        instance   = r.instance;
         r.instance = nil;
     }
 

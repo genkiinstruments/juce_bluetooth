@@ -16,6 +16,7 @@
   dependencies: juce_core, juce_data_structures
   OSXFrameworks: CoreBluetooth Foundation
   mingwLibs: WindowsApp.lib, cppwinrt
+  linuxLibs: bluetooth, glib-2.0
   minimumCppStandard: 17
   searchpaths: include
 
@@ -27,7 +28,9 @@
 
 #include <juce_core/juce_core.h>
 #include <juce_data_structures/juce_data_structures.h>
+
 #include <gsl/span>
+
 #include "include/identifiers.h"
 #include "include/message.h"
 #include "include/valuetrees.h"
@@ -63,6 +66,13 @@ struct BleAdapter : private juce::Timer
     BleAdapter();
     BleAdapter(juce::ValueTree::Listener&);
     ~BleAdapter() override;
+
+    [[nodiscard]] AdapterStatus status() const
+    {
+        return state.hasProperty(ID::status)
+                       ? AdapterStatus(static_cast<int>(state.getProperty(ID::status)))
+                       : AdapterStatus::Disabled;
+    }
 
     void scan(bool shouldStart, const std::initializer_list<juce::Uuid>& uuids = {})
     {

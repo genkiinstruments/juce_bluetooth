@@ -1,5 +1,5 @@
-#include <juce_bluetooth/juce_bluetooth.h>
 #include <fmt/format.h>
+#include <juce_bluetooth/juce_bluetooth.h>
 
 int main()
 {

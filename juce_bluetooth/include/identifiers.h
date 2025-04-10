@@ -3,7 +3,7 @@
 #include <juce_core/juce_core.h>
 
 namespace ID {
-#define DECLARE_ID(name) const juce::Identifier name (#name);
+#define DECLARE_ID(name) const juce::Identifier name(#name);
 
 DECLARE_ID(BLUETOOTH_ADAPTER)
 DECLARE_ID(status)
@@ -19,11 +19,16 @@ DECLARE_ID(max_pdu_size)
 
 DECLARE_ID(SERVICE)
 DECLARE_ID(uuid)
+DECLARE_ID(handle_start)
+DECLARE_ID(handle_end)
 
 DECLARE_ID(CHARACTERISTIC)
 //DECLARE_ID(uuid)
 DECLARE_ID(can_write_with_response)
 DECLARE_ID(can_write_without_response)
+DECLARE_ID(properties)
+DECLARE_ID(handle)
+DECLARE_ID(value_handle)
 
 DECLARE_ID(SCAN)
 DECLARE_ID(should_start)

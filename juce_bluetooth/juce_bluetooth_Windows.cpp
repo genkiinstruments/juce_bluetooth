@@ -2,17 +2,17 @@
 
 #if JUCE_WINDOWS
 
-#pragma warning( push )
-#pragma warning( disable : 4390) // empty controlled statement (; after LOG)
+#pragma warning(push)
+#pragma warning(disable : 4390) // empty controlled statement (; after LOG)
 
 #include <combaseapi.h>
 #include <winrt/base.h>
-#include <winrt/windows.foundation.h>
-#include <winrt/windows.storage.streams.h>
-#include <winrt/windows.devices.radios.h>
 #include <winrt/windows.devices.bluetooth.advertisement.h>
 #include <winrt/windows.devices.bluetooth.genericattributeprofile.h>
 #include <winrt/windows.devices.enumeration.h>
+#include <winrt/windows.devices.radios.h>
+#include <winrt/windows.foundation.h>
+#include <winrt/windows.storage.streams.h>
 
 using namespace winrt;
 using namespace Windows::Foundation;
@@ -23,12 +23,12 @@ using namespace Windows::Devices::Bluetooth;
 using namespace Windows::Devices::Bluetooth::Advertisement;
 using namespace Windows::Devices::Bluetooth::GenericAttributeProfile;
 
-#include <gsl/span_ext>
 #include <fmt/ranges.h>
+#include <gsl/span_ext>
 
+#include "format.h"
 #include "juce_bluetooth.h"
 #include "native/windows/winrt_utils.h"
-#include "format.h"
 
 using namespace juce;
 
@@ -37,7 +37,7 @@ using namespace juce;
 #define GENKI_BLUETOOTH_LOG_ENABLED 0
 #endif
 
-#define LOG(text) JUCE_BLOCK_WITH_FORCED_SEMICOLON(if (GENKI_BLUETOOTH_LOG_ENABLED) DBG((text)); )
+#define LOG(text) JUCE_BLOCK_WITH_FORCED_SEMICOLON(if (GENKI_BLUETOOTH_LOG_ENABLED) DBG((text));)
 
 //======================================================================================================================
 namespace genki {
@@ -45,9 +45,9 @@ namespace genki {
 struct WinBleDevice
 {
     WinBleDevice(BluetoothLEDevice d, BleDevice::Callbacks cbs)
-            : device(std::move(d)),
-              session(nullptr),
-              callbacks(std::move(cbs)) {}
+        : device(std::move(d)),
+          session(nullptr),
+          callbacks(std::move(cbs)) {}
 
     BluetoothLEDevice device;
     GattSession       session;
@@ -126,7 +126,8 @@ struct BleAdapter::Impl : private ValueTree::Listener
             {
                 std::vector<guid> guids(static_cast<size_t>(child.getNumChildren()));
                 std::transform(child.begin(), child.end(), guids.begin(),
-                        [](const ValueTree& vt) { return winrt_util::uuid_to_guid(vt.getProperty(ID::uuid).toString()); });
+                               [](const ValueTree& vt)
+                               { return winrt_util::uuid_to_guid(vt.getProperty(ID::uuid).toString()); });
 
                 startScan(std::move(guids));
             }
@@ -159,22 +160,21 @@ struct BleAdapter::Impl : private ValueTree::Listener
 };
 
 BleAdapter::Impl::Impl(ValueTree vt)
-        : valueTree(std::move(vt)),
-          deviceWatcher([]
-          {
+    : valueTree(std::move(vt)),
+      deviceWatcher([]
+                    {
               // bb7bb05e-5972-42b5-94fc-76eaa7084d49 is the Bluetooth LE protocol ID, by the way...
               constexpr auto selector = L"System.Devices.Aep.ProtocolId:=\"{bb7bb05e-5972-42b5-94fc-76eaa7084d49}\""
                                         " AND System.Devices.Aep.IsPaired:=System.StructuredQueryType.Boolean#True";
 
               const std::vector<winrt::hstring> props{L"System.Devices.Aep.IsConnected"};
 
-              return DeviceInformation::CreateWatcher(selector, props, DeviceInformationKind::AssociationEndpoint);
-          }())
+              return DeviceInformation::CreateWatcher(selector, props, DeviceInformationKind::AssociationEndpoint); }())
 {
     valueTree.addListener(this);
 
     deviceWatcher.Added([this](const DeviceWatcher&, const DeviceInformation& info)
-    {
+                        {
         const auto is_connected = winrt_util::get_property_or(info.Properties(), L"System.Devices.Aep.IsConnected", false);
 
         LOG(fmt::format("Device added: {} - {}, {}", info.Name(), info.Id(), is_connected ? "connected" : "not connected"));
@@ -201,11 +201,10 @@ BleAdapter::Impl::Impl(ValueTree vt)
                         {ID::last_seen, (int) Time::getMillisecondCounter()}}
                 }, nullptr);
             });
-        }
-    });
+        } });
 
     deviceWatcher.Removed([this](const DeviceWatcher&, const DeviceInformationUpdate& info)
-    {
+                          {
         LOG(fmt::format("Device removed: {}", info.Id()));
 
         BluetoothLEDevice::FromIdAsync(info.Id()).Completed([this](const auto& sender, [[maybe_unused]] AsyncStatus status)
@@ -217,20 +216,17 @@ BleAdapter::Impl::Impl(ValueTree vt)
 
             const auto ch = valueTree.getChildWithProperty(ID::address, winrt_util::to_mac_string(device.BluetoothAddress()));
             valueTree.removeChild(ch, nullptr);
-        });
-    });
+        }); });
 
     deviceWatcher.Updated([](const DeviceWatcher&, [[maybe_unused]] const DeviceInformationUpdate& info)
-    {
+                          {
         // TODO: Does this need to be handled?
-        DBG(fmt::format("Device updated: {}", info.Id()));
-    });
+        DBG(fmt::format("Device updated: {}", info.Id())); });
 
     // Step 1: Check if there is any Bluetooth adapter available in the system
     LOG("Querying Bluetooth adapters");
-    DeviceInformation::FindAllAsync(BluetoothAdapter::GetDeviceSelector()).Completed(
-            [this](const IAsyncOperation<DeviceInformationCollection>& sender, AsyncStatus status)
-            {
+    DeviceInformation::FindAllAsync(BluetoothAdapter::GetDeviceSelector()).Completed([this](const IAsyncOperation<DeviceInformationCollection>& sender, AsyncStatus status)
+                                                                                     {
                 //======================================================================================================
                 if (status != AsyncStatus::Completed || sender.GetResults().Size() == 0)
                 {
@@ -304,9 +300,7 @@ BleAdapter::Impl::Impl(ValueTree vt)
                                     }
                             );
                         }
-                );
-            }
-    );
+                ); });
 }
 
 BleAdapter::Impl::~Impl() = default;
@@ -321,43 +315,41 @@ void BleAdapter::Impl::startScan(std::vector<guid> guids)
     advertisementWatcher = BluetoothLEAdvertisementWatcher();
     advertisementWatcher.ScanningMode(BluetoothLEScanningMode::Active);
     advertisementWatcher.Received([wr = WeakReference(this), guids{std::move(guids)}](const auto&, const auto& args)
-    {
-        if (auto* p = wr.get())
-        {
-            const auto addr   = args.BluetoothAddress();
-            const auto advert = args.Advertisement();
+                                  {
+                                      if (auto* p = wr.get())
+                                      {
+                                          const auto addr   = args.BluetoothAddress();
+                                          const auto advert = args.Advertisement();
 
-            const juce::ScopedLock lock(p->advertisementLock);
-            const auto[it, was_inserted] = p->advertisements.emplace(addr, AdvertisementInfo{addr});
+                                          const juce::ScopedLock lock(p->advertisementLock);
+                                          const auto [it, was_inserted] = p->advertisements.emplace(addr, AdvertisementInfo{addr});
 
-            auto& device = it->second;
+                                          auto& device = it->second;
 
-            device.rssi = args.RawSignalStrengthInDBm();
+                                          device.rssi = args.RawSignalStrengthInDBm();
 
-            if (!advert.LocalName().empty())
-                device.name = advert.LocalName();
+                                          if (!advert.LocalName().empty())
+                                              device.name = advert.LocalName();
 
-            if (advert.ServiceUuids().Size() != device.serviceUuids.size())
-            {
-                device.serviceUuids.clear();
+                                          if (advert.ServiceUuids().Size() != device.serviceUuids.size())
+                                          {
+                                              device.serviceUuids.clear();
 
-                for (const auto& s : advert.ServiceUuids())
-                    device.serviceUuids.emplace_back(s);
-            }
+                                              for (const auto& s: advert.ServiceUuids())
+                                                  device.serviceUuids.emplace_back(s);
+                                          }
 
-            if (guids.empty())
-                p->deviceDiscovered(device);
+                                          if (guids.empty())
+                                              p->deviceDiscovered(device);
 
-            for (const auto& guid : guids)
-            {
-                const auto& services = device.serviceUuids;
+                                          for (const auto& guid: guids)
+                                          {
+                                              const auto& services = device.serviceUuids;
 
-                if (const auto iit = std::find(services.cbegin(), services.cend(), guid); iit != services.cend() && !device.name.empty())
-                    p->deviceDiscovered(device);
-            }
-        }
-
-    });
+                                              if (const auto iit = std::find(services.cbegin(), services.cend(), guid); iit != services.cend() && !device.name.empty())
+                                                  p->deviceDiscovered(device);
+                                          }
+                                      } });
 
     //==============================================================================================================
     {
@@ -372,8 +364,7 @@ void BleAdapter::Impl::startScan(std::vector<guid> guids)
             try
             {
                 advertisementWatcher.Start();
-            }
-            catch (const hresult_error&)
+            } catch (const hresult_error&)
             {
                 std::this_thread::sleep_for(std::chrono::duration<double, std::milli>(50));
             }
@@ -404,13 +395,7 @@ void BleAdapter::Impl::deviceDiscovered(const AdvertisementInfo& info)
     }
     else
     {
-        valueTree.appendChild({ID::BLUETOOTH_DEVICE, {
-                {ID::name, name},
-                {ID::address, winrt_util::to_mac_string(info.address)},
-                {ID::rssi, info.rssi},
-                {ID::is_connected, is_connected},
-                {ID::last_seen, now}}
-        }, nullptr);
+        valueTree.appendChild({ID::BLUETOOTH_DEVICE, {{ID::name, name}, {ID::address, winrt_util::to_mac_string(info.address)}, {ID::rssi, info.rssi}, {ID::is_connected, is_connected}, {ID::last_seen, now}}}, nullptr);
     }
 }
 
@@ -420,9 +405,8 @@ void BleAdapter::Impl::connect(const ValueTree& deviceTree, BleDevice::Callbacks
 
     DBG(fmt::format("Connecting:\n{}", deviceTree));
 
-    BluetoothLEDevice::FromBluetoothAddressAsync(get_address(deviceTree)).Completed(
-            [this, vt = deviceTree, cbs{std::move(callbacks)}](const auto& sender, [[maybe_unused]] AsyncStatus stat)
-            {
+    BluetoothLEDevice::FromBluetoothAddressAsync(get_address(deviceTree)).Completed([this, vt = deviceTree, cbs{std::move(callbacks)}](const auto& sender, [[maybe_unused]] AsyncStatus stat)
+                                                                                    {
                 jassert(stat == AsyncStatus::Completed);
 
                 const ScopedLock lock(devicesLock);
@@ -477,23 +461,21 @@ void BleAdapter::Impl::connect(const ValueTree& deviceTree, BleDevice::Callbacks
                                 });
                             }
                         }
-                );
-            }
-    );
+                ); });
 }
 
 void BleAdapter::Impl::processPendingWrites()
 {
     const ScopedLock dLock(devicesLock);
 
-    for (auto&[_, device] : devices)
+    for (auto& [_, device]: devices)
     {
         const ScopedLock wLock(device.writeLock);
 
         if (device.writes.empty() || device.isWriteInProgress)
             continue;
 
-        const auto&[vt, data, type] = device.writes.front();
+        const auto& [vt, data, type] = device.writes.front();
         jassert(vt.hasType(ID::CHARACTERISTIC));
 
         const auto addr = get_address(getAncestor(vt, ID::BLUETOOTH_DEVICE));
@@ -501,21 +483,22 @@ void BleAdapter::Impl::processPendingWrites()
         const auto guid = winrt_util::uuid_to_guid(uuid);
 
         auto& ch = device.characteristics;
-        if (const auto iit = std::find_if(ch.begin(), ch.end(), [&](const auto& c) { return c.Uuid() == guid; }); iit != ch.end())
+        if (const auto iit = std::find_if(ch.begin(), ch.end(), [&](const auto& c)
+                                          { return c.Uuid() == guid; });
+            iit != ch.end())
         {
             Windows::Storage::Streams::DataWriter writer;
             writer.ByteOrder(Windows::Storage::Streams::ByteOrder::LittleEndian);
             writer.WriteBytes({(const uint8_t*) data.data(), (const uint8_t*) data.data() + data.size()});
 
             DBG(fmt::format("Writing characteristic ({} response) {}: {}",
-                    (type == GattWriteOption::WriteWithResponse ? "with" : "without"),
-                    uuid,
-                    juce::String::toHexString(data.data(), static_cast<int>(data.size()))));
+                            (type == GattWriteOption::WriteWithResponse ? "with" : "without"),
+                            uuid,
+                            juce::String::toHexString(data.data(), static_cast<int>(data.size()))));
 
             device.isWriteInProgress = true;
-            iit->WriteValueWithResultAsync(writer.DetachBuffer(), type).Completed(
-                    [wr = juce::WeakReference(this), charact = vt, addr, type = type](const IAsyncOperation<GattWriteResult>& sender, AsyncStatus status)
-                    {
+            iit->WriteValueWithResultAsync(writer.DetachBuffer(), type).Completed([wr = juce::WeakReference(this), charact = vt, addr, type = type](const IAsyncOperation<GattWriteResult>& sender, AsyncStatus status)
+                                                                                  {
                         if (status != AsyncStatus::Completed)
                         {
                             LOG(fmt::format("Bluetooth: WriteValueWithResultAsync completed with error: {}", winrt_util::to_string(status)));
@@ -558,8 +541,7 @@ void BleAdapter::Impl::processPendingWrites()
                             }
 
                             p->processPendingWrites();
-                        }
-                    });
+                        } });
         }
     }
 }
@@ -594,9 +576,8 @@ void BleAdapter::Impl::discoverServices(const ValueTree& deviceTree)
     {
         auto& device = it->second.device;
 
-        device.GetGattServicesAsync(BluetoothCacheMode::Uncached).Completed(
-                [this, vt = deviceTree](const IAsyncOperation<GattDeviceServicesResult>& sender, AsyncStatus status) mutable
-                {
+        device.GetGattServicesAsync(BluetoothCacheMode::Uncached).Completed([this, vt = deviceTree](const IAsyncOperation<GattDeviceServicesResult>& sender, AsyncStatus status) mutable
+                                                                            {
                     if (status != AsyncStatus::Completed)
                     {
                         LOG(fmt::format("Bluetooth: GetGattServicesAsync failed: {}", winrt_util::to_string(status)));
@@ -615,8 +596,7 @@ void BleAdapter::Impl::discoverServices(const ValueTree& deviceTree)
                         }
                     }
 
-                    message(vt, ID::SERVICES_DISCOVERED);
-                });
+                    message(vt, ID::SERVICES_DISCOVERED); });
     }
 }
 
@@ -628,13 +608,15 @@ void BleAdapter::Impl::discoverCharacteristics(const ValueTree& vt)
 
     if (const auto it = devices.find(get_address(vt.getParent())); it != devices.end())
     {
-        const auto guid = winrt_util::uuid_to_guid(vt.getProperty(ID::uuid).toString());
-        auto& services = it->second.services;
+        const auto guid     = winrt_util::uuid_to_guid(vt.getProperty(ID::uuid).toString());
+        auto&      services = it->second.services;
 
-        if (const auto iit = std::find_if(services.cbegin(), services.cend(), [&](const auto& s) { return s.Uuid() == guid; }); iit != services.cend())
+        if (const auto iit = std::find_if(services.cbegin(), services.cend(), [&](const auto& s)
+                                          { return s.Uuid() == guid; });
+            iit != services.cend())
         {
             iit->RequestAccessAsync().Completed([this, s = *iit, svt = vt, addr = get_address(vt.getParent())](const auto&, AsyncStatus status)
-            {
+                                                {
                 if (status != AsyncStatus::Completed)
                 {
                     LOG(fmt::format("Bluetooth: RequestAccessAsync failed: {}", winrt_util::to_string(status)));
@@ -681,11 +663,9 @@ void BleAdapter::Impl::discoverCharacteristics(const ValueTree& vt)
                             }}, nullptr);
                         }
                     }
-                });
-            });
+                }); });
         }
     }
-
 }
 
 void BleAdapter::Impl::enableNotifications(const ValueTree& charact, bool shouldIndicate = false)
@@ -702,11 +682,13 @@ void BleAdapter::Impl::enableNotifications(const ValueTree& charact, bool should
         const auto guid = winrt_util::uuid_to_guid(uuid);
 
         auto& ch = it->second.characteristics;
-        if (const auto iit = std::find_if(ch.begin(), ch.end(), [&](const auto& c) { return c.Uuid() == guid; }); iit != ch.end())
+        if (const auto iit = std::find_if(ch.begin(), ch.end(), [&](const auto& c)
+                                          { return c.Uuid() == guid; });
+            iit != ch.end())
         {
             const auto type = shouldIndicate
-                              ? GattClientCharacteristicConfigurationDescriptorValue::Indicate
-                              : GattClientCharacteristicConfigurationDescriptorValue::Notify;
+                                      ? GattClientCharacteristicConfigurationDescriptorValue::Indicate
+                                      : GattClientCharacteristicConfigurationDescriptorValue::Notify;
 
             iit->WriteClientCharacteristicConfigurationDescriptorWithResultAsync(type).Completed(
                     [charact](const auto& sender, [[maybe_unused]] AsyncStatus status)
@@ -807,7 +789,7 @@ size_t BleAdapter::getMaximumValueLength(const BleDevice& device)
 //======================================================================================================================
 void BleDevice::write(BleAdapter& adapter, const Uuid& charactUuid, gsl::span<const gsl::byte> data, bool withResponse)
 {
-    for (const auto& s : state)
+    for (const auto& s: state)
         if (s.hasType(ID::SERVICE))
             if (const auto c = s.getChildWithProperty(ID::uuid, charactUuid.toDashedString()); c.isValid())
                 adapter.impl->write(c, data, withResponse);
@@ -815,6 +797,6 @@ void BleDevice::write(BleAdapter& adapter, const Uuid& charactUuid, gsl::span<co
 
 } // namespace genki
 
-#pragma warning( pop )
+#pragma warning(pop)
 
 #endif // JUCE_WINDOWS

@@ -1,19 +1,25 @@
 #pragma once
 
-#include <juce_data_structures/juce_data_structures.h>
 #include <gsl/byte>
+#include <juce_data_structures/juce_data_structures.h>
 
 #if _WIN32
 #pragma warning(push, 0)
-#else
-#pragma GCC diagnostic push
+#elif defined(__clang__)
+#pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wextra-semi"
+#elif defined(__GNUC__)
+#pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wswitch-enum"
 #endif
+
 #include <fmt/ranges.h>
+
 #if _WIN32
 #pragma warning(pop)
-#else
+#elif defined(__clang__)
+#pragma clang diagnostic pop
+#elif defined(__GNUC__)
 #pragma GCC diagnostic pop
 #endif
 
@@ -23,7 +29,10 @@ struct fmt::formatter<juce::String>
     constexpr auto parse(fmt::format_parse_context& ctx) -> decltype(ctx.begin()) { return ctx.begin(); }
 
     template<typename FormatContext>
-    auto format(const juce::String& str, FormatContext& ctx) const -> decltype(ctx.out()) { return fmt::format_to(ctx.out(), "{}", str.getCharPointer().getAddress()); }
+    auto format(const juce::String& str, FormatContext& ctx) const -> decltype(ctx.out())
+    {
+        return fmt::format_to(ctx.out(), "{}", str.getCharPointer().getAddress());
+    }
 };
 
 template<>
@@ -47,7 +56,10 @@ struct fmt::formatter<juce::Identifier>
     constexpr auto parse(fmt::format_parse_context& ctx) -> decltype(ctx.begin()) { return ctx.begin(); }
 
     template<typename FormatContext>
-    auto format(const juce::Identifier& id, FormatContext& ctx) -> decltype(ctx.out()) { return fmt::format_to(ctx.out(), "{}", id.toString()); }
+    auto format(const juce::Identifier& id, FormatContext& ctx) -> decltype(ctx.out())
+    {
+        return fmt::format_to(ctx.out(), "{}", id.toString());
+    }
 };
 
 template<>

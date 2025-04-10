@@ -3,10 +3,10 @@
 #include <juce_core/juce_core.h>
 
 #include <winrt/base.h>
-#include <winrt/windows.foundation.collections.h>
+#include <winrt/windows.devices.bluetooth.genericattributeprofile.h>
 #include <winrt/windows.devices.enumeration.h>
 #include <winrt/windows.devices.radios.h>
-#include <winrt/windows.devices.bluetooth.genericattributeprofile.h>
+#include <winrt/windows.foundation.collections.h>
 
 using namespace winrt::Windows::Devices::Enumeration;
 using namespace winrt::Windows::Devices::Radios;
@@ -21,7 +21,10 @@ struct fmt::formatter<winrt::hstring>
     constexpr auto parse(fmt::format_parse_context& ctx) -> decltype(ctx.begin()) { return ctx.begin(); }
 
     template<typename FormatContext>
-    auto format(const winrt::hstring& str, FormatContext& ctx) -> decltype(ctx.out()) { return fmt::format_to(ctx.out(), "{}", winrt::to_string(str)); }
+    auto format(const winrt::hstring& str, FormatContext& ctx) -> decltype(ctx.out())
+    {
+        return fmt::format_to(ctx.out(), "{}", winrt::to_string(str));
+    }
 };
 
 namespace winrt_util {
@@ -33,8 +36,8 @@ template<typename T>
 inline auto get_property(const PropertyStore& map, const winrt::hstring& key) -> std::optional<T>
 {
     return map.HasKey(key)
-           ? std::optional(winrt::unbox_value<T>(map.Lookup(key)))
-           : std::nullopt;
+                   ? std::optional(winrt::unbox_value<T>(map.Lookup(key)))
+                   : std::nullopt;
 }
 
 template<typename T>
@@ -51,7 +54,7 @@ inline auto get_property_or(const PropertyStore& map, const winrt::hstring& key,
 inline auto uuid_to_guid(const juce::Uuid& uuid) -> winrt::guid
 {
     constexpr int uuid_size = 16;
-    const auto* bytes = uuid.getRawData();
+    const auto*   bytes     = uuid.getRawData();
 
     const uint32_t d1 = (bytes[0] << 24) | (bytes[1] << 16) | (bytes[2] << 8) | (bytes[3] << 0);
     const uint16_t d2 = (bytes[4] << 8) | (bytes[5] << 0);
@@ -69,7 +72,7 @@ inline auto guid_to_uuid(const winrt::guid& guid) -> juce::Uuid
     constexpr int                  uuid_size = 16;
     std::array<uint8_t, uuid_size> bytes{};
 
-    const auto[d1, d2, d3, d4] = guid;
+    const auto [d1, d2, d3, d4] = guid;
 
     bytes[0] = (d1 >> 24) & 0xff;
     bytes[1] = (d1 >> 16) & 0xff;
@@ -89,7 +92,8 @@ inline auto guid_to_uuid(const winrt::guid& guid) -> juce::Uuid
 
 inline auto to_mac_string(uint64_t addr) -> juce::String
 {
-    constexpr auto byte = [](uint64_t addr, unsigned int pos) -> uint8_t { return static_cast<uint8_t>((addr >> pos) & 0xFF); };
+    constexpr auto byte = [](uint64_t addr, unsigned int pos) -> uint8_t
+    { return static_cast<uint8_t>((addr >> pos) & 0xFF); };
 
     const std::array<uint8_t, 6> bytes{byte(addr, 0), byte(addr, 8), byte(addr, 16), byte(addr, 24), byte(addr, 32), byte(addr, 40)};
 
@@ -105,51 +109,46 @@ juce::String to_string(T t);
 template<>
 inline juce::String to_string<AsyncStatus>(AsyncStatus status)
 {
-    return status == AsyncStatus::Canceled ? "Canceled" :
-           status == AsyncStatus::Error ? "Error" :
-           status == AsyncStatus::Completed ? "Completed" :
-           status == AsyncStatus::Started ? "Started" :
-           "Unkown";
+    return status == AsyncStatus::Canceled ? "Canceled" : status == AsyncStatus::Error ? "Error"
+                                                  : status == AsyncStatus::Completed   ? "Completed"
+                                                  : status == AsyncStatus::Started     ? "Started"
+                                                                                       : "Unkown";
 }
 
 template<>
 inline juce::String to_string<GattCommunicationStatus>(GattCommunicationStatus status)
 {
-    return status == GattCommunicationStatus::AccessDenied ? "AccessDenied" :
-           status == GattCommunicationStatus::ProtocolError ? "ProtocolError" :
-           status == GattCommunicationStatus::Success ? "Success" :
-           status == GattCommunicationStatus::Unreachable ? "Unreachable" :
-           "Unkown";
+    return status == GattCommunicationStatus::AccessDenied ? "AccessDenied" : status == GattCommunicationStatus::ProtocolError ? "ProtocolError"
+                                                                      : status == GattCommunicationStatus::Success             ? "Success"
+                                                                      : status == GattCommunicationStatus::Unreachable         ? "Unreachable"
+                                                                                                                               : "Unkown";
 }
 
 template<>
 inline juce::String to_string<RadioKind>(RadioKind kind)
 {
-    return kind == RadioKind::Bluetooth ? "Bluetooth" :
-           kind == RadioKind::FM ? "FM" :
-           kind == RadioKind::MobileBroadband ? "MobileBroadBand" :
-           kind == RadioKind::Other ? "Other" :
-           kind == RadioKind::WiFi ? "Wifi" :
-           "Unknown";
+    return kind == RadioKind::Bluetooth ? "Bluetooth" : kind == RadioKind::FM        ? "FM"
+                                                : kind == RadioKind::MobileBroadband ? "MobileBroadBand"
+                                                : kind == RadioKind::Other           ? "Other"
+                                                : kind == RadioKind::WiFi            ? "Wifi"
+                                                                                     : "Unknown";
 }
 
 
 template<>
 inline juce::String to_string<BluetoothConnectionStatus>(BluetoothConnectionStatus status)
 {
-    return status == BluetoothConnectionStatus::Connected ? "Connected" :
-           status == BluetoothConnectionStatus::Disconnected ? "Disconnected" :
-           "Unknown (";
+    return status == BluetoothConnectionStatus::Connected ? "Connected" : status == BluetoothConnectionStatus::Disconnected ? "Disconnected"
+                                                                                                                            : "Unknown (";
 }
 
 template<>
 inline juce::String to_string<DeviceAccessStatus>(DeviceAccessStatus status)
 {
-    return status == DeviceAccessStatus::Allowed ? "Allowed" :
-           status == DeviceAccessStatus::DeniedBySystem ? "DeniedBySystem" :
-           status == DeviceAccessStatus::DeniedByUser ? "DeniedByUser" :
-           status == DeviceAccessStatus::Unspecified ? "Unspecified" :
-           "Unkown";
+    return status == DeviceAccessStatus::Allowed ? "Allowed" : status == DeviceAccessStatus::DeniedBySystem ? "DeniedBySystem"
+                                                       : status == DeviceAccessStatus::DeniedByUser         ? "DeniedByUser"
+                                                       : status == DeviceAccessStatus::Unspecified          ? "Unspecified"
+                                                                                                            : "Unkown";
 }
 
-} // namespace winrt_utils
+} // namespace winrt_util
