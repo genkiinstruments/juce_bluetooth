@@ -16,7 +16,6 @@ pkgs.mkShell {
     xorg.libXcursor
     xorg.libXinerama
     ladspa-sdk
-
     bluez
   ];
 
