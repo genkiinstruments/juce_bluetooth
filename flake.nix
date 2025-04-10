@@ -14,7 +14,6 @@
     inputs.blueprint {
       inherit inputs;
       systems = [
-        "aarch64-darwin"
         "x86_64-linux"
       ];
       prefix = "nix";
