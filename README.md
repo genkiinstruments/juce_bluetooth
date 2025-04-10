@@ -16,6 +16,8 @@ If you use a different build system, you will have to make sure these libraries 
 
 \* JUCE will only be fetched if `juce_bluetooth` is loaded as a top-level project. If you're consuming it in your project, JUCE will surely already be available.
 
+**Note** (Linux only): If you provide your own copy of JUCE, you'll have to apply [this patch](./cmake/juce_Messaging_linux.cpp.patch) to hook the G-Lib mainloop up correctly. It's auto-applied if JUCE is fetched through CPM via this repo.
+
 The project assumes a CMake-based environment.
 
 ## Installing
