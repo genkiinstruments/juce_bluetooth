@@ -19,7 +19,7 @@ jobs:
         uses: actions/checkout@main
 
       - name: Setup MSVC environment
-        uses: ilammy/msvc-dev-cmd@master
+        uses: ilammy/msvc-dev-cmd@v1
 
       - name: Configure and Build
         shell: cmd # Often helpful on Windows for cmake/msvc
