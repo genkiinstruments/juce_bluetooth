@@ -14,8 +14,8 @@ inline juce::Uuid to_juce_uuid(const CBUUID* _Nonnull uuid)
     const NSString* str = [uuid UUIDString];
 
     return [str length] == 4
-           ? Uuid(juce::String("0000") + String([str UTF8String]).toLowerCase() + juce::String("-0000-1000-8000-00805f9b34fb"))
-           : Uuid(String([[uuid UUIDString] UTF8String]));
+                   ? Uuid(juce::String("0000") + String([str UTF8String]).toLowerCase() + juce::String("-0000-1000-8000-00805f9b34fb"))
+                   : Uuid(String([[uuid UUIDString] UTF8String]));
 }
 
 inline CBUUID* _Nonnull from_juce_uuid(const juce::Uuid& uuid)
@@ -28,4 +28,3 @@ inline juce::String get_uuid_string(CBUUID* _Nonnull uuid) { return to_juce_uuid
 inline juce::String get_address_string(NSUUID* _Nonnull uuid) { return juce::String([[uuid UUIDString] UTF8String]).toLowerCase(); }
 
 } // namespace genki::corebluetooth_utils
-

@@ -7,7 +7,7 @@
 #include "format.h"
 
 std::atomic_bool term = false;
-static void signal_handler(int) { term.store(true); }
+static void      signal_handler(int) { term.store(true); }
 
 int main()
 {
@@ -26,8 +26,7 @@ int main()
             .valueChanged = [](const juce::Uuid&, [[maybe_unused]] gsl::span<const gsl::byte> data)
             {
                 // Step 6: Notifications from the device will be received here
-                DBG(fmt::format("HRS notification: {}", data));
-            },
+                DBG(fmt::format("HRS notification: {}", data)); },
             .characteristicWritten = [](const juce::Uuid, bool) {},
     };
 
@@ -44,8 +43,8 @@ int main()
             const auto is_powered_on = AdapterStatus((int) vt.getProperty(id)) == AdapterStatus::PoweredOn;
 
             fmt::print("{}\n", is_powered_on
-                               ? "Adapter powered on, starting scan..."
-                               : "Adapter powered off/disabled, stopping scan...");
+                                       ? "Adapter powered on, starting scan..."
+                                       : "Adapter powered off/disabled, stopping scan...");
 
             // Step 1: Start scanning for devices
             //         We can optionally filter advertised service UUIDs

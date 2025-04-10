@@ -6,7 +6,7 @@
 #include "format.h"
 
 std::atomic_bool term = false;
-static void signal_handler(int) { term.store(true); }
+static void      signal_handler(int) { term.store(true); }
 
 int main()
 {
@@ -20,14 +20,15 @@ int main()
     genki::BleAdapter        adapter;
     genki::ValueTreeListener listener{adapter.state};
 
-    listener.property_changed = [&](juce::ValueTree& vt, const juce::Identifier& id) {
+    listener.property_changed = [&](juce::ValueTree& vt, const juce::Identifier& id)
+    {
         if (vt.hasType(ID::BLUETOOTH_ADAPTER) && id == ID::status)
         {
             const auto is_powered_on = adapter.status() == AdapterStatus::PoweredOn;
 
             fmt::print("{}\n", is_powered_on
-                               ? "Adapter powered on, starting scan..."
-                               : "Adapter powered off/disabled, stopping scan...");
+                                       ? "Adapter powered on, starting scan..."
+                                       : "Adapter powered off/disabled, stopping scan...");
 
             adapter.scan(is_powered_on);
         }
@@ -36,9 +37,9 @@ int main()
             if (vt.getProperty(ID::name).toString().isNotEmpty())
             {
                 fmt::print("{} {} - rssi: {}\n",
-                        vt.getProperty(ID::name).toString().toStdString(),
-                        vt.getProperty(ID::address).toString().toStdString(),
-                        (int) vt.getProperty(ID::rssi));
+                           vt.getProperty(ID::name).toString().toStdString(),
+                           vt.getProperty(ID::address).toString().toStdString(),
+                           (int) vt.getProperty(ID::rssi));
             }
         }
     };

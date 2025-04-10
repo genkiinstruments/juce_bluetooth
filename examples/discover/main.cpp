@@ -7,7 +7,7 @@
 #include "format.h"
 
 std::atomic_bool term = false;
-static void signal_handler(int) { term.store(true); }
+static void      signal_handler(int) { term.store(true); }
 
 int main()
 {
@@ -32,8 +32,8 @@ int main()
             const auto is_powered_on = AdapterStatus((int) vt.getProperty(id)) == AdapterStatus::PoweredOn;
 
             fmt::print("{}\n", is_powered_on
-                               ? "Adapter powered on, starting scan..."
-                               : "Adapter powered off/disabled, stopping scan...");
+                                       ? "Adapter powered on, starting scan..."
+                                       : "Adapter powered off/disabled, stopping scan...");
 
             // Step 1: Start scanning for devices
             //         We can optionally filter advertised service UUIDs
@@ -63,9 +63,9 @@ int main()
                 // Step 2: Connect to the device.
                 //         The returned device object can be used to write/disconnect from the device later on.
                 device = adapter.connect(vt, genki::BleDevice::Callbacks{
-                        .valueChanged = [](const juce::Uuid&, gsl::span<const gsl::byte>) {},
-                        .characteristicWritten = [](const juce::Uuid, bool) {},
-                });
+                                                     .valueChanged          = [](const juce::Uuid&, gsl::span<const gsl::byte>) {},
+                                                     .characteristicWritten = [](const juce::Uuid, bool) {},
+                                             });
 
                 adapter.scan(false);
             }
@@ -76,7 +76,7 @@ int main()
             jassert(dev.hasType(ID::BLUETOOTH_DEVICE));
 
             // Step 4: Discover characteristics on the services
-            for (const auto& child : dev)
+            for (const auto& child: dev)
                 if (child.hasType(ID::SERVICE))
                     genki::message(child, ID::DISCOVER_CHARACTERISTICS);
         }

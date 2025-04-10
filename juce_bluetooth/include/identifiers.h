@@ -3,7 +3,7 @@
 #include <juce_core/juce_core.h>
 
 namespace ID {
-#define DECLARE_ID(name) const juce::Identifier name (#name);
+#define DECLARE_ID(name) const juce::Identifier name(#name);
 
 DECLARE_ID(BLUETOOTH_ADAPTER)
 DECLARE_ID(status)
