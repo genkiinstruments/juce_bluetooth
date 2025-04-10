@@ -1,4 +1,5 @@
-name: Build examples on macOS and Windows
+name: Build examples
+
 on:
   push:
     branches:
@@ -10,21 +11,45 @@ on:
       - development
 
 jobs:
-  build:
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [mac-latest, windows-latest, ubuntu-latest]
-
+  build-windows:
+    name: Build on Windows
+    runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: ilammy/msvc-dev-cmd@v1
-        with:
-          arch: x64
+      - name: Checkout code
+        uses: actions/checkout@main
 
-      - name: Build and test
-        env:
-          CPM_SOURCE_CACHE: ~/.cpm
+      - name: Setup MSVC environment
+        uses: ilammy/msvc-dev-cmd@master
+
+      - name: Configure and Build
+        shell: cmd # Often helpful on Windows for cmake/msvc
         run: |
-          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DJUCE_BLUETOOTH_BUILD_EXAMPLES=ON
+          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DJUCE_BLUETOOTH_BUILD_EXAMPLES=ON -DCPM_SOURCE_CACHE=build
           cmake --build build
+
+  build-macos:
+    name: Build on macOS
+    runs-on: macos-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@main
+
+      - name: Configure and Build
+        run: |
+          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DJUCE_BLUETOOTH_BUILD_EXAMPLES=ON -DCPM_SOURCE_CACHE=build
+          cmake --build build
+
+  build-linux:
+    name: Build on Linux (Nix)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@main
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@main
+
+      - name: Configure and Build (Nix)
+        run: |
+          nix develop --command cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DJUCE_BLUETOOTH_BUILD_EXAMPLES=ON -DCPM_SOURCE_CACHE=build
+          nix develop --command cmake --build build
