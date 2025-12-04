@@ -181,7 +181,7 @@ BleAdapter::Impl::Impl(ValueTree vt)
 
         if (is_connected)
         {
-            BluetoothLEDevice::FromIdAsync(info.Id()).Completed([this, name = info.Name()](const auto& sender, AsyncStatus status)
+            BluetoothLEDevice::FromIdAsync(info.Id()).Completed([wr = WeakReference(this), name = info.Name()](const auto& sender, AsyncStatus status)
             {
                 if (status != AsyncStatus::Completed)
                 {
@@ -194,28 +194,47 @@ BleAdapter::Impl::Impl(ValueTree vt)
                 const auto device = sender.GetResults();
                 jassert(device != nullptr);
 
-                valueTree.appendChild({ID::BLUETOOTH_DEVICE, {
-                        {ID::name, juce::String(winrt::to_string(device.Name()))},
-                        {ID::address, winrt_util::to_mac_string(device.BluetoothAddress())},
-                        {ID::is_connected, device.ConnectionStatus() == BluetoothConnectionStatus::Connected},
-                        {ID::last_seen, (int) Time::getMillisecondCounter()}}
-                }, nullptr);
+                const auto deviceName = juce::String(winrt::to_string(device.Name()));
+                const auto address = winrt_util::to_mac_string(device.BluetoothAddress());
+                const auto isConnected = device.ConnectionStatus() == BluetoothConnectionStatus::Connected;
+                const auto lastSeen = (int) Time::getMillisecondCounter();
+
+                MessageManager::callAsync([wr, deviceName, address, isConnected, lastSeen]()
+                {
+                    if (auto* p = wr.get())
+                    {
+                        p->valueTree.appendChild({ID::BLUETOOTH_DEVICE, {
+                                {ID::name, deviceName},
+                                {ID::address, address},
+                                {ID::is_connected, isConnected},
+                                {ID::last_seen, lastSeen}}
+                        }, nullptr);
+                    }
+                });
             });
         } });
 
-    deviceWatcher.Removed([this](const DeviceWatcher&, const DeviceInformationUpdate& info)
+    deviceWatcher.Removed([wr = WeakReference(this)](const DeviceWatcher&, const DeviceInformationUpdate& info)
                           {
         LOG(fmt::format("Device removed: {}", info.Id()));
 
-        BluetoothLEDevice::FromIdAsync(info.Id()).Completed([this](const auto& sender, [[maybe_unused]] AsyncStatus status)
+        BluetoothLEDevice::FromIdAsync(info.Id()).Completed([wr](const auto& sender, [[maybe_unused]] AsyncStatus status)
         {
             jassert(status == AsyncStatus::Completed);
 
             const auto device = sender.GetResults();
             jassert(device != nullptr);
 
-            const auto ch = valueTree.getChildWithProperty(ID::address, winrt_util::to_mac_string(device.BluetoothAddress()));
-            valueTree.removeChild(ch, nullptr);
+            const auto address = winrt_util::to_mac_string(device.BluetoothAddress());
+
+            MessageManager::callAsync([wr, address]()
+            {
+                if (auto* p = wr.get())
+                {
+                    const auto ch = p->valueTree.getChildWithProperty(ID::address, address);
+                    p->valueTree.removeChild(ch, nullptr);
+                }
+            });
         }); });
 
     deviceWatcher.Updated([](const DeviceWatcher&, [[maybe_unused]] const DeviceInformationUpdate& info)
@@ -225,7 +244,7 @@ BleAdapter::Impl::Impl(ValueTree vt)
 
     // Step 1: Check if there is any Bluetooth adapter available in the system
     LOG("Querying Bluetooth adapters");
-    DeviceInformation::FindAllAsync(BluetoothAdapter::GetDeviceSelector()).Completed([this](const IAsyncOperation<DeviceInformationCollection>& sender, AsyncStatus status)
+    DeviceInformation::FindAllAsync(BluetoothAdapter::GetDeviceSelector()).Completed([wr = WeakReference(this)](const IAsyncOperation<DeviceInformationCollection>& sender, AsyncStatus status)
                                                                                      {
                 //======================================================================================================
                 if (status != AsyncStatus::Completed || sender.GetResults().Size() == 0)
@@ -235,7 +254,11 @@ BleAdapter::Impl::Impl(ValueTree vt)
                         : fmt::format("No Bluetooth adapter found", winrt_util::to_string(status))
                     );
 
-                    valueTree.setProperty(ID::status, (int) AdapterStatus::Disabled, nullptr);
+                    MessageManager::callAsync([wr]()
+                    {
+                        if (auto* p = wr.get())
+                            p->valueTree.setProperty(ID::status, (int) AdapterStatus::Disabled, nullptr);
+                    });
                     return;
                 }
 
@@ -243,12 +266,16 @@ BleAdapter::Impl::Impl(ValueTree vt)
                 // Step 2: Get access to the default Bluetooth adapter
                 LOG("Requesting access to default Bluetooth adapter");
                 BluetoothAdapter::GetDefaultAsync().Completed(
-                        [this](const IAsyncOperation<BluetoothAdapter>& sender, AsyncStatus status)
+                        [wr](const IAsyncOperation<BluetoothAdapter>& sender, AsyncStatus status)
                         {
                             //==========================================================================================
                             if (status != AsyncStatus::Completed)
                             {
-                                valueTree.setProperty(ID::status, (int) AdapterStatus::Disabled, nullptr);
+                                MessageManager::callAsync([wr]()
+                                {
+                                    if (auto* p = wr.get())
+                                        p->valueTree.setProperty(ID::status, (int) AdapterStatus::Disabled, nullptr);
+                                });
                                 return;
                             }
 
@@ -260,7 +287,11 @@ BleAdapter::Impl::Impl(ValueTree vt)
                             if (!is_le_supported)
                             {
                                 LOG(fmt::format("Adapter ({}) does not support Bluetooth LE", addr_str));
-                                valueTree.setProperty(ID::status, (int) AdapterStatus::Disabled, nullptr);
+                                MessageManager::callAsync([wr]()
+                                {
+                                    if (auto* p = wr.get())
+                                        p->valueTree.setProperty(ID::status, (int) AdapterStatus::Disabled, nullptr);
+                                });
 
                                 return;
                             }
@@ -270,33 +301,53 @@ BleAdapter::Impl::Impl(ValueTree vt)
                             LOG(fmt::format("Requesting access to radio for adapter: {}, LE is supported", addr_str));
 
                             adapter.GetRadioAsync().Completed(
-                                    [this](const IAsyncOperation<Radio>& rad, AsyncStatus status)
+                                    [wr](const IAsyncOperation<Radio>& rad, AsyncStatus status)
                                     {
-                                        //==============================================================================
-                                        if (status != AsyncStatus::Completed)
+                                        if (auto* p = wr.get())
                                         {
-                                            LOG("Failed to get access to radio");
-                                            valueTree.setProperty(ID::status, (int) AdapterStatus::Disabled, nullptr);
-                                            return;
+                                            //==============================================================================
+                                            if (status != AsyncStatus::Completed)
+                                            {
+                                                LOG("Failed to get access to radio");
+                                                MessageManager::callAsync([wr]()
+                                                {
+                                                    if (auto* p = wr.get())
+                                                        p->valueTree.setProperty(ID::status, (int) AdapterStatus::Disabled, nullptr);
+                                                });
+                                                return;
+                                            }
+
+                                            //==============================================================================
+                                            // Step 4: Listen to state changes in the Bluetooth Radio object
+                                            const auto get_status = [](const auto& rad)
+                                            {
+                                                return rad.State() == RadioState::On ? AdapterStatus::PoweredOn :
+                                                       rad.State() == RadioState::Off ? AdapterStatus::PoweredOff :
+                                                       AdapterStatus::Disabled;
+                                            };
+
+                                            p->radio = rad.GetResults();
+                                            p->radio.StateChanged([wr, get_status](auto, auto)
+                                            {
+                                                if (auto* p = wr.get())
+                                                {
+                                                    const int status = (int) get_status(p->radio);
+                                                    MessageManager::callAsync([wr, status]()
+                                                    {
+                                                        if (auto* p = wr.get())
+                                                            p->valueTree.setProperty(ID::status, status, nullptr);
+                                                    });
+                                                }
+                                            });
+
+                                            // Step 5: We most likely have access to a Bluetooth adapter that is enabled.
+                                            const int initialStatus = (int) get_status(p->radio);
+                                            MessageManager::callAsync([wr, initialStatus]()
+                                            {
+                                                if (auto* p = wr.get())
+                                                    p->valueTree.setProperty(ID::status, initialStatus, nullptr);
+                                            });
                                         }
-
-                                        //==============================================================================
-                                        // Step 4: Listen to state changes in the Bluetooth Radio object
-                                        const auto get_status = [](const auto& rad)
-                                        {
-                                            return rad.State() == RadioState::On ? AdapterStatus::PoweredOn :
-                                                   rad.State() == RadioState::Off ? AdapterStatus::PoweredOff :
-                                                   AdapterStatus::Disabled;
-                                        };
-
-                                        radio = rad.GetResults();
-                                        radio.StateChanged([this, get_status](auto, auto)
-                                        {
-                                            valueTree.setProperty(ID::status, (int) get_status(radio), nullptr);
-                                        });
-
-                                        // Step 5: We most likely have access to a Bluetooth adapter that is enabled.
-                                        valueTree.setProperty(ID::status, (int) get_status(radio), nullptr);
                                     }
                             );
                         }
@@ -384,19 +435,27 @@ void BleAdapter::Impl::deviceDiscovered(const AdvertisementInfo& info)
 {
     const auto   now          = (int) Time::getMillisecondCounter();
     const String name         = winrt::to_string(info.name);
+    const String address      = winrt_util::to_mac_string(info.address);
+    const int    rssi         = info.rssi;
     const bool   is_connected = false; // TODO: Does this apply?
 
-    if (auto ch = valueTree.getChildWithProperty(ID::address, winrt_util::to_mac_string(info.address)); ch.isValid())
+    // ValueTree is not thread-safe - must modify on message thread
+    MessageManager::callAsync([wr = WeakReference(this), name, address, rssi, is_connected, now]()
     {
-        ch.setProperty(ID::rssi, info.rssi, nullptr);
-        ch.setProperty(ID::name, name, nullptr);
-
-        ch.setProperty(ID::last_seen, now, nullptr);
-    }
-    else
-    {
-        valueTree.appendChild({ID::BLUETOOTH_DEVICE, {{ID::name, name}, {ID::address, winrt_util::to_mac_string(info.address)}, {ID::rssi, info.rssi}, {ID::is_connected, is_connected}, {ID::last_seen, now}}}, nullptr);
-    }
+        if (auto* p = wr.get())
+        {
+            if (auto ch = p->valueTree.getChildWithProperty(ID::address, address); ch.isValid())
+            {
+                ch.setProperty(ID::rssi, rssi, nullptr);
+                ch.setProperty(ID::name, name, nullptr);
+                ch.setProperty(ID::last_seen, now, nullptr);
+            }
+            else
+            {
+                p->valueTree.appendChild({ID::BLUETOOTH_DEVICE, {{ID::name, name}, {ID::address, address}, {ID::rssi, rssi}, {ID::is_connected, is_connected}, {ID::last_seen, now}}}, nullptr);
+            }
+        }
+    });
 }
 
 void BleAdapter::Impl::connect(const ValueTree& deviceTree, BleDevice::Callbacks callbacks)
@@ -405,63 +464,86 @@ void BleAdapter::Impl::connect(const ValueTree& deviceTree, BleDevice::Callbacks
 
     DBG(fmt::format("Connecting:\n{}", deviceTree));
 
-    BluetoothLEDevice::FromBluetoothAddressAsync(get_address(deviceTree)).Completed([this, vt = deviceTree, cbs{std::move(callbacks)}](const auto& sender, [[maybe_unused]] AsyncStatus stat)
+    BluetoothLEDevice::FromBluetoothAddressAsync(get_address(deviceTree)).Completed([wr = WeakReference(this), vt = deviceTree, cbs{std::move(callbacks)}](const auto& sender, [[maybe_unused]] AsyncStatus stat)
                                                                                     {
-                jassert(stat == AsyncStatus::Completed);
-
-                const ScopedLock lock(devicesLock);
-
-                const auto[it, was_inserted] = devices.try_emplace(get_address(vt), sender.GetResults(), cbs);
-
-                if (!was_inserted)
+                if (auto* p = wr.get())
                 {
-                    DBG(fmt::format("Device was already inserted: {} {}", winrt_util::to_mac_string(it->first), it->second.device.Name()));
-                    return;
-                }
+                    jassert(stat == AsyncStatus::Completed);
 
-                auto& device = it->second.device;
-                jassert(device != nullptr);
+                    const ScopedLock lock(p->devicesLock);
 
-                device.ConnectionStatusChanged([this, vt](const BluetoothLEDevice& d, const auto&) mutable
-                {
-                    vt.setProperty(ID::is_connected, d.ConnectionStatus() == BluetoothConnectionStatus::Connected, nullptr);
+                    const auto[it, was_inserted] = p->devices.try_emplace(get_address(vt), sender.GetResults(), cbs);
 
-                    LOG(fmt::format("Connection status changed: {} ({}), {}",
-                            winrt::to_string(d.Name()),
-                            winrt_util::to_mac_string(d.BluetoothAddress()),
-                            d.ConnectionStatus() == BluetoothConnectionStatus::Connected));
-
-                    if (d.ConnectionStatus() != BluetoothConnectionStatus::Connected)
+                    if (!was_inserted)
                     {
-                        const ScopedLock lock(devicesLock);
-                        devices.erase(devices.find(get_address(vt)));
-
-                        valueTree.removeChild(vt, nullptr);
+                        DBG(fmt::format("Device was already inserted: {} {}", winrt_util::to_mac_string(it->first), it->second.device.Name()));
+                        return;
                     }
-                });
 
-                GattSession::FromDeviceIdAsync(device.BluetoothDeviceId()).Completed(
-                        [this, vt](const auto& op, [[maybe_unused]] AsyncStatus stat) mutable
+                    auto& device = it->second.device;
+                    jassert(device != nullptr);
+
+                    device.ConnectionStatusChanged([wr, vt](const BluetoothLEDevice& d, const auto&) mutable
+                    {
+                        const bool isConnected = d.ConnectionStatus() == BluetoothConnectionStatus::Connected;
+
+                        LOG(fmt::format("Connection status changed: {} ({}), {}",
+                                winrt::to_string(d.Name()),
+                                winrt_util::to_mac_string(d.BluetoothAddress()),
+                                isConnected));
+
+                        MessageManager::callAsync([wr, vt, isConnected]() mutable
                         {
-                            jassert(stat == AsyncStatus::Completed);
-
-                            const ScopedLock lock(devicesLock);
-
-                            if (const auto iit = devices.find(get_address(vt)); iit != devices.end())
+                            if (auto* p = wr.get())
                             {
-                                auto& session = iit->second.session;
+                                vt.setProperty(ID::is_connected, isConnected, nullptr);
 
-                                session = op.GetResults();
-                                session.MaintainConnection(true);
-                                vt.setProperty(ID::max_pdu_size, session.MaxPduSize() - 3, nullptr);
-
-                                session.MaxPduSizeChanged([vt](const GattSession& s, const auto&) mutable
+                                if (!isConnected)
                                 {
-                                    vt.setProperty(ID::max_pdu_size, s.MaxPduSize() - 3, nullptr);
-                                });
+                                    const ScopedLock lock(p->devicesLock);
+                                    p->devices.erase(p->devices.find(get_address(vt)));
+
+                                    p->valueTree.removeChild(vt, nullptr);
+                                }
                             }
-                        }
-                ); });
+                        });
+                    });
+
+                    GattSession::FromDeviceIdAsync(device.BluetoothDeviceId()).Completed(
+                            [wr, vt](const auto& op, [[maybe_unused]] AsyncStatus stat) mutable
+                            {
+                                if (auto* p = wr.get())
+                                {
+                                    jassert(stat == AsyncStatus::Completed);
+
+                                    const ScopedLock lock(p->devicesLock);
+
+                                    if (const auto iit = p->devices.find(get_address(vt)); iit != p->devices.end())
+                                    {
+                                        auto& session = iit->second.session;
+
+                                        session = op.GetResults();
+                                        session.MaintainConnection(true);
+
+                                        const int maxPduSize = session.MaxPduSize() - 3;
+                                        MessageManager::callAsync([vt, maxPduSize]() mutable
+                                        {
+                                            vt.setProperty(ID::max_pdu_size, maxPduSize, nullptr);
+                                        });
+
+                                        session.MaxPduSizeChanged([vt](const GattSession& s, const auto&) mutable
+                                        {
+                                            const int maxPduSize = s.MaxPduSize() - 3;
+                                            MessageManager::callAsync([vt, maxPduSize]() mutable
+                                            {
+                                                vt.setProperty(ID::max_pdu_size, maxPduSize, nullptr);
+                                            });
+                                        });
+                                    }
+                                }
+                            }
+                    );
+                } });
 }
 
 void BleAdapter::Impl::processPendingWrites()
@@ -576,27 +658,42 @@ void BleAdapter::Impl::discoverServices(const ValueTree& deviceTree)
     {
         auto& device = it->second.device;
 
-        device.GetGattServicesAsync(BluetoothCacheMode::Uncached).Completed([this, vt = deviceTree](const IAsyncOperation<GattDeviceServicesResult>& sender, AsyncStatus status) mutable
+        device.GetGattServicesAsync(BluetoothCacheMode::Uncached).Completed([wr = WeakReference(this), vt = deviceTree](const IAsyncOperation<GattDeviceServicesResult>& sender, AsyncStatus status) mutable
                                                                             {
-                    if (status != AsyncStatus::Completed)
+                    if (auto* p = wr.get())
                     {
-                        LOG(fmt::format("Bluetooth: GetGattServicesAsync failed: {}", winrt_util::to_string(status)));
-                        return;
-                    }
-
-                    const ScopedLock lock(devicesLock);
-                    if (const auto   it = devices.find(get_address(vt)); it != devices.end())
-                    {
-                        for (const auto& s : sender.GetResults().Services())
+                        if (status != AsyncStatus::Completed)
                         {
-                            it->second.services.push_back(s);
-
-                            auto svt = ValueTree{ID::SERVICE, {{ID::uuid, winrt_util::guid_to_uuid(s.Uuid()).toDashedString()}}};
-                            vt.appendChild(svt, nullptr);
+                            LOG(fmt::format("Bluetooth: GetGattServicesAsync failed: {}", winrt_util::to_string(status)));
+                            return;
                         }
-                    }
 
-                    message(vt, ID::SERVICES_DISCOVERED); });
+                        // Collect service UUIDs while holding the lock
+                        std::vector<juce::String> serviceUuids;
+                        {
+                            const ScopedLock lock(p->devicesLock);
+                            if (const auto   it = p->devices.find(get_address(vt)); it != p->devices.end())
+                            {
+                                for (const auto& s : sender.GetResults().Services())
+                                {
+                                    it->second.services.push_back(s);
+                                    serviceUuids.push_back(winrt_util::guid_to_uuid(s.Uuid()).toDashedString());
+                                }
+                            }
+                        }
+
+                        // Modify ValueTree on message thread
+                        MessageManager::callAsync([vt, serviceUuids = std::move(serviceUuids)]() mutable
+                        {
+                            for (const auto& uuid : serviceUuids)
+                            {
+                                auto svt = ValueTree{ID::SERVICE, {{ID::uuid, uuid}}};
+                                vt.appendChild(svt, nullptr);
+                            }
+
+                            message(vt, ID::SERVICES_DISCOVERED);
+                        });
+                    } });
     }
 }
 
@@ -615,7 +712,7 @@ void BleAdapter::Impl::discoverCharacteristics(const ValueTree& vt)
                                           { return s.Uuid() == guid; });
             iit != services.cend())
         {
-            iit->RequestAccessAsync().Completed([this, s = *iit, svt = vt, addr = get_address(vt.getParent())](const auto&, AsyncStatus status)
+            iit->RequestAccessAsync().Completed([wr = WeakReference(this), s = *iit, svt = vt, addr = get_address(vt.getParent())](const auto&, AsyncStatus status)
                                                 {
                 if (status != AsyncStatus::Completed)
                 {
@@ -624,44 +721,66 @@ void BleAdapter::Impl::discoverCharacteristics(const ValueTree& vt)
                 }
 
                 //==============================================================================
-                s.GetCharacteristicsAsync().Completed([this, svt = svt, addr](const auto& sender, AsyncStatus status) mutable
+                s.GetCharacteristicsAsync().Completed([wr, svt = svt, addr](const auto& sender, AsyncStatus status) mutable
                 {
-                    if (status != AsyncStatus::Completed)
+                    if (auto* p = wr.get())
                     {
-                        LOG(fmt::format("Bluetooth: GetCharacteristicsAsync failed: {}", winrt_util::to_string(status)));
-                        return;
-                    }
-
-                    //==========================================================================
-                    const auto res      = sender.GetResults();
-
-                    if (res.Status() != GattCommunicationStatus::Success)
-                    {
-                        LOG(fmt::format("Bluetooth: Error getting characteristics: {}", winrt_util::to_string(res.Status())));
-
-                        if (res.Status() == GattCommunicationStatus::ProtocolError)
-                            LOG(fmt::format("Protocol error: {}", static_cast<int>(res.ProtocolError().Value())));
-
-                        return;
-                    }
-
-                    const ScopedLock lock(devicesLock);
-                    if (const auto   it = devices.find(addr); it != devices.end())
-                    {
-                        for (const auto& c : res.Characteristics())
+                        if (status != AsyncStatus::Completed)
                         {
-                            const auto test_property = [&](GattCharacteristicProperties prop)
-                            {
-                                return static_cast<bool>(static_cast<uint32_t>(c.CharacteristicProperties()) >> static_cast<uint32_t>(prop));
-                            };
-
-                            it->second.characteristics.push_back(c);
-                            svt.appendChild({ID::CHARACTERISTIC, {
-                                {ID::uuid, winrt_util::guid_to_uuid(c.Uuid()).toDashedString()},
-                                {ID::can_write_with_response, test_property(GattCharacteristicProperties::Write)},
-                                {ID::can_write_without_response, test_property(GattCharacteristicProperties::WriteWithoutResponse)},
-                            }}, nullptr);
+                            LOG(fmt::format("Bluetooth: GetCharacteristicsAsync failed: {}", winrt_util::to_string(status)));
+                            return;
                         }
+
+                        //==========================================================================
+                        const auto res      = sender.GetResults();
+
+                        if (res.Status() != GattCommunicationStatus::Success)
+                        {
+                            LOG(fmt::format("Bluetooth: Error getting characteristics: {}", winrt_util::to_string(res.Status())));
+
+                            if (res.Status() == GattCommunicationStatus::ProtocolError)
+                                LOG(fmt::format("Protocol error: {}", static_cast<int>(res.ProtocolError().Value())));
+
+                            return;
+                        }
+
+                        // Collect characteristic info while holding the lock
+                        struct CharInfo { juce::String uuid; bool canWriteWithResponse; bool canWriteWithoutResponse; };
+                        std::vector<CharInfo> charInfos;
+
+                        {
+                            const ScopedLock lock(p->devicesLock);
+                            if (const auto   it = p->devices.find(addr); it != p->devices.end())
+                            {
+                                for (const auto& c : res.Characteristics())
+                                {
+                                    const auto test_property = [&](GattCharacteristicProperties prop)
+                                    {
+                                        return static_cast<bool>(static_cast<uint32_t>(c.CharacteristicProperties()) >> static_cast<uint32_t>(prop));
+                                    };
+
+                                    it->second.characteristics.push_back(c);
+                                    charInfos.push_back({
+                                        winrt_util::guid_to_uuid(c.Uuid()).toDashedString(),
+                                        test_property(GattCharacteristicProperties::Write),
+                                        test_property(GattCharacteristicProperties::WriteWithoutResponse)
+                                    });
+                                }
+                            }
+                        }
+
+                        // Modify ValueTree on message thread
+                        MessageManager::callAsync([svt, charInfos = std::move(charInfos)]() mutable
+                        {
+                            for (const auto& info : charInfos)
+                            {
+                                svt.appendChild({ID::CHARACTERISTIC, {
+                                    {ID::uuid, info.uuid},
+                                    {ID::can_write_with_response, info.canWriteWithResponse},
+                                    {ID::can_write_without_response, info.canWriteWithoutResponse},
+                                }}, nullptr);
+                            }
+                        });
                     }
                 }); });
         }
@@ -708,7 +827,10 @@ void BleAdapter::Impl::enableNotifications(const ValueTree& charact, bool should
                             return;
                         }
 
-                        message(charact, ID::NOTIFICATIONS_ARE_ENABLED);
+                        MessageManager::callAsync([charact]()
+                        {
+                            message(charact, ID::NOTIFICATIONS_ARE_ENABLED);
+                        });
                     });
 
             iit->ValueChanged(
