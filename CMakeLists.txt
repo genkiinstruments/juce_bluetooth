@@ -14,7 +14,7 @@ file(COPY ${patch_files} DESTINATION ${cpm_abs}/patches)
 if (${CMAKE_SOURCE_DIR} STREQUAL ${CMAKE_CURRENT_SOURCE_DIR})
     CPMAddPackage(NAME JUCE
         GITHUB_REPOSITORY juce-framework/JUCE
-        GIT_TAG 8.0.3
+        GIT_TAG 8.0.11
         PATCH_COMMAND git apply --ignore-space-change ${cpm_abs}/patches/juce_Messaging_linux.cpp.patch
         UPDATE_DISCONNECTED 1
         OPTIONS "JUCE_BUILD_EXTRAS OFF" "JUCE_BUILD_EXAMPLES OFF" "JUCE_ENABLE_MODULE_SOURCE_GROUPS ON"
