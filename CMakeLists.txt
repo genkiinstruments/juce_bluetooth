@@ -34,6 +34,9 @@ target_compile_definitions(${PROJECT_NAME} INTERFACE JUCE_LINUX_USE_GLIB_MAINLOO
 add_library(genki::bluetooth ALIAS ${PROJECT_NAME})
 target_link_libraries(${PROJECT_NAME} INTERFACE GSL fmt range-v3)
 
+# range-v3 forward-declares std containers using a libc++ macro that Xcode 26 removed; it offers this opt-out.
+target_compile_definitions(${PROJECT_NAME} INTERFACE META_NO_STD_FORWARD_DECLARATIONS)
+
 if (UNIX AND NOT APPLE)
     find_package(PkgConfig REQUIRED)
 
