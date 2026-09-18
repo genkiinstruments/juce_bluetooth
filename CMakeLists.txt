@@ -22,7 +22,7 @@ if (${CMAKE_SOURCE_DIR} STREQUAL ${CMAKE_CURRENT_SOURCE_DIR})
 endif ()
 
 CPMAddPackage("gh:microsoft/GSL#v4.0.0")
-CPMAddPackage("gh:fmtlib/fmt#10.1.1")
+CPMAddPackage("gh:fmtlib/fmt#11.2.0")
 CPMAddPackage("gh:ericniebler/range-v3#0.12.0")
 
 include(GNUInstallDirs)
