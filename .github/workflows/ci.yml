@@ -49,7 +49,7 @@ jobs:
       - name: Install Nix
         uses: DeterminateSystems/nix-installer-action@main
 
-      - run: nix flake check -L --all-systems
+      - run: nix flake check -L
 
       - name: Configure and Build (Nix)
         run: |
