@@ -327,17 +327,15 @@ BleAdapter::Impl::Impl(ValueTree vt)
                                             };
 
                                             p->radio = rad.GetResults();
-                                            p->radio.StateChanged([wr, get_status](auto, auto)
+                                            p->radio.StateChanged([wr, get_status](const Radio& sender, auto)
                                             {
-                                                if (auto* p = wr.get())
+                                                // Thread-pool thread: read the radio from the event, not through the Impl
+                                                const int status = (int) get_status(sender);
+                                                MessageManager::callAsync([wr, status]()
                                                 {
-                                                    const int status = (int) get_status(p->radio);
-                                                    MessageManager::callAsync([wr, status]()
-                                                    {
-                                                        if (auto* p = wr.get())
-                                                            p->valueTree.setProperty(ID::status, status, nullptr);
-                                                    });
-                                                }
+                                                    if (auto* p = wr.get())
+                                                        p->valueTree.setProperty(ID::status, status, nullptr);
+                                                });
                                             });
 
                                             // Step 5: We most likely have access to a Bluetooth adapter that is enabled.
@@ -354,7 +352,39 @@ BleAdapter::Impl::Impl(ValueTree vt)
                 ); });
 }
 
-BleAdapter::Impl::~Impl() = default;
+BleAdapter::Impl::~Impl()
+{
+    valueTree.removeListener(this);
+
+    // Stop the event sources before the members their handlers reach into are destroyed.
+    try
+    {
+        if (advertisementWatcher != nullptr && advertisementWatcher.Status() == BluetoothLEAdvertisementWatcherStatus::Started)
+            advertisementWatcher.Stop();
+
+        if (deviceWatcher.Status() == DeviceWatcherStatus::Started || deviceWatcher.Status() == DeviceWatcherStatus::EnumerationCompleted)
+            deviceWatcher.Stop();
+    } catch (const hresult_error&)
+    {
+    }
+
+    std::map<BluetoothAddress, WinBleDevice> toClose;
+
+    {
+        const ScopedLock lock(devicesLock);
+        toClose.swap(devices);
+    }
+
+    for (auto& [_, dev]: toClose)
+    {
+        try
+        {
+            dev.device.Close();
+        } catch (const hresult_error&)
+        {
+        }
+    }
+}
 
 void BleAdapter::Impl::startScan(std::vector<guid> guids)
 {
@@ -441,7 +471,7 @@ void BleAdapter::Impl::deviceDiscovered(const AdvertisementInfo& info)
 
     // ValueTree is not thread-safe - must modify on message thread
     MessageManager::callAsync([wr = WeakReference(this), name, address, rssi, is_connected, now]()
-    {
+                              {
         if (auto* p = wr.get())
         {
             if (auto ch = p->valueTree.getChildWithProperty(ID::address, address); ch.isValid())
@@ -454,8 +484,7 @@ void BleAdapter::Impl::deviceDiscovered(const AdvertisementInfo& info)
             {
                 p->valueTree.appendChild({ID::BLUETOOTH_DEVICE, {{ID::name, name}, {ID::address, address}, {ID::rssi, rssi}, {ID::is_connected, is_connected}, {ID::last_seen, now}}}, nullptr);
             }
-        }
-    });
+        } });
 }
 
 void BleAdapter::Impl::connect(const ValueTree& deviceTree, BleDevice::Callbacks callbacks)
@@ -464,15 +493,18 @@ void BleAdapter::Impl::connect(const ValueTree& deviceTree, BleDevice::Callbacks
 
     DBG(fmt::format("Connecting:\n{}", deviceTree));
 
-    BluetoothLEDevice::FromBluetoothAddressAsync(get_address(deviceTree)).Completed([wr = WeakReference(this), vt = deviceTree, cbs{std::move(callbacks)}](const auto& sender, [[maybe_unused]] AsyncStatus stat)
-                                                                                    {
+    // Read the ValueTree here, on the message thread. The completion handlers below run on thread-pool threads.
+    const auto address = get_address(deviceTree);
+
+    BluetoothLEDevice::FromBluetoothAddressAsync(address).Completed([wr = WeakReference(this), vt = deviceTree, address, cbs{std::move(callbacks)}](const auto& sender, [[maybe_unused]] AsyncStatus stat)
+                                                                    {
                 if (auto* p = wr.get())
                 {
                     jassert(stat == AsyncStatus::Completed);
 
                     const ScopedLock lock(p->devicesLock);
 
-                    const auto[it, was_inserted] = p->devices.try_emplace(get_address(vt), sender.GetResults(), cbs);
+                    const auto[it, was_inserted] = p->devices.try_emplace(address, sender.GetResults(), cbs);
 
                     if (!was_inserted)
                     {
@@ -510,7 +542,7 @@ void BleAdapter::Impl::connect(const ValueTree& deviceTree, BleDevice::Callbacks
                     });
 
                     GattSession::FromDeviceIdAsync(device.BluetoothDeviceId()).Completed(
-                            [wr, vt](const auto& op, [[maybe_unused]] AsyncStatus stat) mutable
+                            [wr, vt, address](const auto& op, [[maybe_unused]] AsyncStatus stat) mutable
                             {
                                 if (auto* p = wr.get())
                                 {
@@ -518,7 +550,7 @@ void BleAdapter::Impl::connect(const ValueTree& deviceTree, BleDevice::Callbacks
 
                                     const ScopedLock lock(p->devicesLock);
 
-                                    if (const auto iit = p->devices.find(get_address(vt)); iit != p->devices.end())
+                                    if (const auto iit = p->devices.find(address); iit != p->devices.end())
                                     {
                                         auto& session = iit->second.session;
 
@@ -579,51 +611,59 @@ void BleAdapter::Impl::processPendingWrites()
                             juce::String::toHexString(data.data(), static_cast<int>(data.size()))));
 
             device.isWriteInProgress = true;
-            iit->WriteValueWithResultAsync(writer.DetachBuffer(), type).Completed([wr = juce::WeakReference(this), charact = vt, addr, type = type](const IAsyncOperation<GattWriteResult>& sender, AsyncStatus status)
+            iit->WriteValueWithResultAsync(writer.DetachBuffer(), type).Completed([wr = juce::WeakReference(this), uuid, addr, type = type](const IAsyncOperation<GattWriteResult>& sender, AsyncStatus status)
                                                                                   {
+                        bool success = false;
+
                         if (status != AsyncStatus::Completed)
                         {
                             LOG(fmt::format("Bluetooth: WriteValueWithResultAsync completed with error: {}", winrt_util::to_string(status)));
-                            return;
                         }
-
-                        const auto res         = sender.GetResults();
-                        const auto comm_status = res.Status();
-
-                        if (comm_status != GattCommunicationStatus::Success)
+                        else
                         {
-                            LOG(fmt::format("Bluetooth: Error writing characteristic: {}", winrt_util::to_string(comm_status)));
+                            const auto res         = sender.GetResults();
+                            const auto comm_status = res.Status();
 
-                            if (comm_status == GattCommunicationStatus::ProtocolError)
-                                LOG(fmt::format("Protocol error: {}", static_cast<int>(res.ProtocolError().Value())));
+                            success = comm_status == GattCommunicationStatus::Success;
 
-                            return;
-                        }
-
-                        jassert(comm_status == GattCommunicationStatus::Success);
-
-                        if (auto* p = wr.get())
-                        {
+                            if (!success)
                             {
-                                const ScopedLock lock(p->devicesLock);
+                                LOG(fmt::format("Bluetooth: Error writing characteristic: {}", winrt_util::to_string(comm_status)));
 
-                                if (const auto it = p->devices.find(addr); it != p->devices.end())
-                                {
-                                    auto& dev = it->second;
-                                    dev.isWriteInProgress = false;
-
-                                    {
-                                        const ScopedLock lk(dev.writeLock);
-                                        dev.writes.pop_front();
-                                    }
-
-                                    if (type == GattWriteOption::WriteWithResponse && dev.callbacks.characteristicWritten != nullptr)
-                                        dev.callbacks.characteristicWritten(charact.getProperty(ID::uuid).toString(), comm_status == GattCommunicationStatus::Success);
-                                }
+                                if (comm_status == GattCommunicationStatus::ProtocolError)
+                                    LOG(fmt::format("Protocol error: {}", static_cast<int>(res.ProtocolError().Value())));
                             }
+                        }
 
-                            p->processPendingWrites();
-                        } });
+                        // Finish on the message thread: the application callback and the ValueTree reads in
+                        // processPendingWrites() must not run on this thread-pool thread. Release the queue
+                        // even on failure, otherwise every later write is stuck behind this one.
+                        MessageManager::callAsync([wr, uuid, addr, type, success]()
+                        {
+                            if (auto* p = wr.get())
+                            {
+                                {
+                                    const ScopedLock lock(p->devicesLock);
+
+                                    if (const auto it = p->devices.find(addr); it != p->devices.end())
+                                    {
+                                        auto& dev = it->second;
+                                        dev.isWriteInProgress = false;
+
+                                        {
+                                            const ScopedLock lk(dev.writeLock);
+                                            if (!dev.writes.empty())
+                                                dev.writes.pop_front();
+                                        }
+
+                                        if (type == GattWriteOption::WriteWithResponse && dev.callbacks.characteristicWritten != nullptr)
+                                            dev.callbacks.characteristicWritten(uuid, success);
+                                    }
+                                }
+
+                                p->processPendingWrites();
+                            }
+                        }); });
         }
     }
 }
@@ -652,13 +692,15 @@ void BleAdapter::Impl::discoverServices(const ValueTree& deviceTree)
 {
     jassert(deviceTree.hasType(ID::BLUETOOTH_DEVICE));
 
+    const auto address = get_address(deviceTree);
+
     const ScopedLock lock(devicesLock);
 
-    if (const auto it = devices.find(get_address(deviceTree)); it != devices.end())
+    if (const auto it = devices.find(address); it != devices.end())
     {
         auto& device = it->second.device;
 
-        device.GetGattServicesAsync(BluetoothCacheMode::Uncached).Completed([wr = WeakReference(this), vt = deviceTree](const IAsyncOperation<GattDeviceServicesResult>& sender, AsyncStatus status) mutable
+        device.GetGattServicesAsync(BluetoothCacheMode::Uncached).Completed([wr = WeakReference(this), vt = deviceTree, address](const IAsyncOperation<GattDeviceServicesResult>& sender, AsyncStatus status) mutable
                                                                             {
                     if (auto* p = wr.get())
                     {
@@ -672,7 +714,7 @@ void BleAdapter::Impl::discoverServices(const ValueTree& deviceTree)
                         std::vector<juce::String> serviceUuids;
                         {
                             const ScopedLock lock(p->devicesLock);
-                            if (const auto   it = p->devices.find(get_address(vt)); it != p->devices.end())
+                            if (const auto   it = p->devices.find(address); it != p->devices.end())
                             {
                                 for (const auto& s : sender.GetResults().Services())
                                 {
@@ -828,23 +870,28 @@ void BleAdapter::Impl::enableNotifications(const ValueTree& charact, bool should
                         }
 
                         MessageManager::callAsync([charact]()
-                        {
-                            message(charact, ID::NOTIFICATIONS_ARE_ENABLED);
-                        });
+                                                  { message(charact, ID::NOTIFICATIONS_ARE_ENABLED); });
                     });
 
             iit->ValueChanged(
                     [wr = juce::WeakReference(this), address, uuid](const GattCharacteristic&, const GattValueChangedEventArgs& args)
                     {
-                        if (auto* p = wr.get())
-                        {
-                            const auto buf = args.CharacteristicValue();
+                        // Deliver on the message thread, as the CoreBluetooth backend does: the application
+                        // callback drives state that the message thread also touches.
+                        const auto buf = args.CharacteristicValue();
 
-                            const ScopedLock lock(p->devicesLock);
+                        std::vector<gsl::byte> bytes(reinterpret_cast<const gsl::byte*>(buf.data()),
+                                                     reinterpret_cast<const gsl::byte*>(buf.data()) + buf.Length());
 
-                            if (const auto it = p->devices.find(address); it != p->devices.end())
-                                it->second.callbacks.valueChanged(uuid, gsl::as_bytes(gsl::make_span(buf.data(), buf.Length())));
-                        }
+                        MessageManager::callAsync([wr, address, uuid, bytes = std::move(bytes)]()
+                                                  {
+                            if (auto* p = wr.get())
+                            {
+                                const ScopedLock lock(p->devicesLock);
+
+                                if (const auto it = p->devices.find(address); it != p->devices.end())
+                                    it->second.callbacks.valueChanged(uuid, gsl::make_span(bytes));
+                            } });
                     });
         }
     }
@@ -892,15 +939,23 @@ void BleAdapter::disconnect(const BleDevice& device)
 
     DBG(fmt::format("Disconnect device:\n{}", device.state));
 
-    const ScopedLock lock(impl->devicesLock);
+    // Close() waits for in-flight event handlers, which take devicesLock, so it must not run under the lock.
+    BluetoothLEDevice toClose = nullptr;
 
-    if (const auto it = impl->devices.find(get_address(device.state)); it != impl->devices.end())
     {
-        it->second.device.Close();
-        impl->devices.erase(it);
+        const ScopedLock lock(impl->devicesLock);
 
-        state.removeChild(device.state, nullptr);
+        if (const auto it = impl->devices.find(get_address(device.state)); it != impl->devices.end())
+        {
+            toClose = it->second.device;
+            impl->devices.erase(it);
+
+            state.removeChild(device.state, nullptr);
+        }
     }
+
+    if (toClose != nullptr)
+        toClose.Close();
 }
 
 size_t BleAdapter::getMaximumValueLength(const BleDevice& device)
