@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.15)
 
-project(juce_bluetooth VERSION 1.1.0)
+project(juce_bluetooth VERSION 1.1.1)
 set(CMAKE_CXX_STANDARD 20)
 
 include(cmake/CPM.cmake)
@@ -14,7 +14,7 @@ file(COPY ${patch_files} DESTINATION ${cpm_abs}/patches)
 if (${CMAKE_SOURCE_DIR} STREQUAL ${CMAKE_CURRENT_SOURCE_DIR})
     CPMAddPackage(NAME JUCE
         GITHUB_REPOSITORY juce-framework/JUCE
-        GIT_TAG 8.0.3
+        GIT_TAG 8.0.11
         PATCH_COMMAND git apply --ignore-space-change ${cpm_abs}/patches/juce_Messaging_linux.cpp.patch
         UPDATE_DISCONNECTED 1
         OPTIONS "JUCE_BUILD_EXTRAS OFF" "JUCE_BUILD_EXAMPLES OFF" "JUCE_ENABLE_MODULE_SOURCE_GROUPS ON"
@@ -22,7 +22,7 @@ if (${CMAKE_SOURCE_DIR} STREQUAL ${CMAKE_CURRENT_SOURCE_DIR})
 endif ()
 
 CPMAddPackage("gh:microsoft/GSL#v4.0.0")
-CPMAddPackage("gh:fmtlib/fmt#10.1.1")
+CPMAddPackage("gh:fmtlib/fmt#11.2.0")
 CPMAddPackage("gh:ericniebler/range-v3#0.12.0")
 
 include(GNUInstallDirs)
@@ -33,6 +33,9 @@ target_compile_definitions(${PROJECT_NAME} INTERFACE JUCE_LINUX_USE_GLIB_MAINLOO
 
 add_library(genki::bluetooth ALIAS ${PROJECT_NAME})
 target_link_libraries(${PROJECT_NAME} INTERFACE GSL fmt range-v3)
+
+# range-v3 forward-declares std containers using a libc++ macro that Xcode 26 removed; it offers this opt-out.
+target_compile_definitions(${PROJECT_NAME} INTERFACE META_NO_STD_FORWARD_DECLARATIONS)
 
 if (UNIX AND NOT APPLE)
     find_package(PkgConfig REQUIRED)

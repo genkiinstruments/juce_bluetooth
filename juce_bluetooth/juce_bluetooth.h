@@ -9,13 +9,13 @@
 
   ID:                 juce_bluetooth
   vendor:             Genki
-  version:            1.0.0
+  version:            1.1.1
   name:               JUCE Bluetooth LE
   description:        Bluetooth LE classes for JUCE
 
   dependencies: juce_core, juce_data_structures
   OSXFrameworks: CoreBluetooth Foundation
-  mingwLibs: WindowsApp.lib, cppwinrt
+  windowsLibs: windowsapp
   linuxLibs: bluetooth, glib-2.0
   minimumCppStandard: 17
   searchpaths: include

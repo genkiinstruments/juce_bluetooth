@@ -6,7 +6,7 @@ include (../../cmake/CPM.cmake)
 
 # juce_bluetooth depends on JUCE and these libraries and they need to be present
 CPMAddPackage("gh:microsoft/GSL#v4.0.0")
-CPMAddPackage("gh:fmtlib/fmt#10.1.1")
+CPMAddPackage("gh:fmtlib/fmt#11.2.0")
 CPMAddPackage("gh:ericniebler/range-v3#0.12.0")
 
 find_package(juce_bluetooth CONFIG REQUIRED)

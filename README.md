@@ -158,3 +158,9 @@ listener.child_added = [&](juce::ValueTree&, juce::ValueTree& vt)
     }
 };
 ```
+
+## Threading
+
+Every backend delivers all `BleAdapter.state` changes and both `BleDevice::Callbacks` on the JUCE message
+thread. On macOS this follows from CoreBluetooth using the main queue; on Windows the WinRT thread-pool
+callbacks are marshalled onto the message thread before the adapter state or an application callback is touched.

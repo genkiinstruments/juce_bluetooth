@@ -41,7 +41,7 @@ struct fmt::formatter<juce::ValueTree>
     constexpr auto parse(fmt::format_parse_context& ctx) -> decltype(ctx.begin()) { return ctx.begin(); }
 
     template<typename FormatContext>
-    auto format(const juce::ValueTree& vt, FormatContext& ctx) -> decltype(ctx.out())
+    auto format(const juce::ValueTree& vt, FormatContext& ctx) const -> decltype(ctx.out())
     {
         juce::XmlElement::TextFormat xml_fmt;
         xml_fmt.addDefaultHeader = false;
@@ -56,7 +56,7 @@ struct fmt::formatter<juce::Identifier>
     constexpr auto parse(fmt::format_parse_context& ctx) -> decltype(ctx.begin()) { return ctx.begin(); }
 
     template<typename FormatContext>
-    auto format(const juce::Identifier& id, FormatContext& ctx) -> decltype(ctx.out())
+    auto format(const juce::Identifier& id, FormatContext& ctx) const -> decltype(ctx.out())
     {
         return fmt::format_to(ctx.out(), "{}", id.toString());
     }
@@ -68,7 +68,7 @@ struct fmt::formatter<const gsl::byte>
     constexpr auto parse(fmt::format_parse_context& ctx) -> decltype(ctx.begin()) { return ctx.begin(); }
 
     template<typename FormatContext>
-    auto format(const gsl::byte& byte, FormatContext& ctx) -> decltype(ctx.out())
+    auto format(const gsl::byte& byte, FormatContext& ctx) const -> decltype(ctx.out())
     {
         return fmt::format_to(ctx.out(), "{:02x}", static_cast<const unsigned char>(byte));
     }
@@ -92,7 +92,7 @@ struct fmt::formatter<juce::Uuid>
     }
 
     template<typename FormatContext>
-    auto format(const juce::Uuid& uuid, FormatContext& ctx) -> decltype(ctx.out())
+    auto format(const juce::Uuid& uuid, FormatContext& ctx) const -> decltype(ctx.out())
     {
         return fmt::format_to(ctx.out(), "{}", dashed ? uuid.toDashedString() : uuid.toString());
     }
