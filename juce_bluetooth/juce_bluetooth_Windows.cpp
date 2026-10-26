@@ -24,7 +24,7 @@ using namespace Windows::Devices::Bluetooth::Advertisement;
 using namespace Windows::Devices::Bluetooth::GenericAttributeProfile;
 
 #include <fmt/ranges.h>
-#include <gsl/span_ext>
+#include <span>
 
 #include "format.h"
 #include "juce_bluetooth.h"
@@ -58,7 +58,7 @@ struct WinBleDevice
 
     //==================================================================================================================
     CriticalSection                                                            writeLock;
-    std::deque<std::tuple<ValueTree, std::vector<gsl::byte>, GattWriteOption>> writes;
+    std::deque<std::tuple<ValueTree, std::vector<std::byte>, GattWriteOption>> writes;
     bool                                                                       isWriteInProgress = false;
 };
 
@@ -87,7 +87,7 @@ struct BleAdapter::Impl : private ValueTree::Listener
     ~Impl() override;
 
     //==================================================================================================================
-    void write(const ValueTree& charact, gsl::span<const gsl::byte> data, bool withResponse);
+    void write(const ValueTree& charact, std::span<const std::byte> data, bool withResponse);
     void connect(const ValueTree&, BleDevice::Callbacks);
 
     //==================================================================================================================
@@ -668,11 +668,11 @@ void BleAdapter::Impl::processPendingWrites()
     }
 }
 
-void BleAdapter::Impl::write(const ValueTree& charact, gsl::span<const gsl::byte> data, bool withResponse)
+void BleAdapter::Impl::write(const ValueTree& charact, std::span<const std::byte> data, bool withResponse)
 {
     jassert(charact.hasType(ID::CHARACTERISTIC));
 
-    std::vector<gsl::byte> buf(data.size());
+    std::vector<std::byte> buf(data.size());
     std::copy(data.begin(), data.end(), buf.begin());
 
     const ScopedLock dLock(devicesLock);
@@ -880,8 +880,8 @@ void BleAdapter::Impl::enableNotifications(const ValueTree& charact, bool should
                         // callback drives state that the message thread also touches.
                         const auto buf = args.CharacteristicValue();
 
-                        std::vector<gsl::byte> bytes(reinterpret_cast<const gsl::byte*>(buf.data()),
-                                                     reinterpret_cast<const gsl::byte*>(buf.data()) + buf.Length());
+                        std::vector<std::byte> bytes(reinterpret_cast<const std::byte*>(buf.data()),
+                                                     reinterpret_cast<const std::byte*>(buf.data()) + buf.Length());
 
                         MessageManager::callAsync([wr, address, uuid, bytes = std::move(bytes)]()
                                                   {
@@ -890,7 +890,7 @@ void BleAdapter::Impl::enableNotifications(const ValueTree& charact, bool should
                                 const ScopedLock lock(p->devicesLock);
 
                                 if (const auto it = p->devices.find(address); it != p->devices.end())
-                                    it->second.callbacks.valueChanged(uuid, gsl::make_span(bytes));
+                                    it->second.callbacks.valueChanged(uuid, std::span(bytes));
                             } });
                     });
         }
@@ -964,7 +964,7 @@ size_t BleAdapter::getMaximumValueLength(const BleDevice& device)
 }
 
 //======================================================================================================================
-void BleDevice::write(BleAdapter& adapter, const Uuid& charactUuid, gsl::span<const gsl::byte> data, bool withResponse)
+void BleDevice::write(BleAdapter& adapter, const Uuid& charactUuid, std::span<const std::byte> data, bool withResponse)
 {
     for (const auto& s: state)
         if (s.hasType(ID::SERVICE))
