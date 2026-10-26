@@ -9,7 +9,7 @@
 #pragma clang diagnostic ignored "-Wdeprecated"
 
 #include <range/v3/view.hpp>
-#include <gsl/span_ext>
+#include <span>
 #include <fmt/format.h>
 
 #include <CoreBluetooth/CoreBluetooth.h>
@@ -237,7 +237,7 @@ didDisconnectPeripheral:(nonnull CBPeripheral*)peripheral
 
             callbacks.valueChanged(
                     Uuid(get_uuid_string([characteristic UUID])),
-                    gsl::as_bytes(gsl::make_span(bytes, static_cast<size_t>(len)))
+                    std::as_bytes(std::span(bytes, static_cast<size_t>(len)))
             );
         }
     }
@@ -378,7 +378,7 @@ struct BleAdapter::Impl : private ValueTree::Listener
     explicit Impl(ValueTree);
     ~Impl() override;
 
-    void write(const ValueTree& charact, gsl::span<const gsl::byte> data, bool withResponse) const
+    void write(const ValueTree& charact, std::span<const std::byte> data, bool withResponse) const
     {
         if (auto* ch = getCharacteristic(charact); ch != nil)
         {
@@ -559,7 +559,7 @@ size_t BleAdapter::getMaximumValueLength(const BleDevice& device)
 }
 
 //======================================================================================================================
-void BleDevice::write(BleAdapter& adapter, const Uuid& charactUuid, gsl::span<const gsl::byte> data, bool withResponse)
+void BleDevice::write(BleAdapter& adapter, const Uuid& charactUuid, std::span<const std::byte> data, bool withResponse)
 {
     for (const auto& s: state)
         if (s.hasType(ID::SERVICE))

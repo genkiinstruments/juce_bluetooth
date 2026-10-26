@@ -7,7 +7,6 @@ JUCE module for interacting with Bluetooth LE devices on macOS and Windows.
 The project depends on a few third-party libraries.
 
 - [JUCE](https://github.com/juce-framework/JUCE) \*
-- [GSL](https://github.com/microsoft/GSL)
 - [fmt](https://github.com/fmtlib/fmt)
 - [range-v3](https://github.com/ericniebler/range-v3)
 
@@ -73,7 +72,7 @@ After discovery, you can connect to a BLE device
 
 ```c++
 const BleDevice::Callbacks ble_callbacks{
-    .valueChanged = [this](const juce::Uuid& uuid, gsl::span<const gsl::byte> data)
+    .valueChanged = [this](const juce::Uuid& uuid, std::span<const std::byte> data)
     {
         // Called when data is received on a characteristic via notifications or indications
     },

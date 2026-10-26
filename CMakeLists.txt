@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.15)
 
-project(juce_bluetooth VERSION 1.1.1)
+project(juce_bluetooth VERSION 2.0.0)
 set(CMAKE_CXX_STANDARD 20)
 
 include(cmake/CPM.cmake)
@@ -21,7 +21,6 @@ if (${CMAKE_SOURCE_DIR} STREQUAL ${CMAKE_CURRENT_SOURCE_DIR})
 )
 endif ()
 
-CPMAddPackage("gh:microsoft/GSL#v4.0.0")
 CPMAddPackage("gh:fmtlib/fmt#11.2.0")
 CPMAddPackage("gh:ericniebler/range-v3#0.12.0")
 
@@ -32,7 +31,7 @@ target_include_directories(${PROJECT_NAME} INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}
 target_compile_definitions(${PROJECT_NAME} INTERFACE JUCE_LINUX_USE_GLIB_MAINLOOP=1)
 
 add_library(genki::bluetooth ALIAS ${PROJECT_NAME})
-target_link_libraries(${PROJECT_NAME} INTERFACE GSL fmt range-v3)
+target_link_libraries(${PROJECT_NAME} INTERFACE fmt range-v3)
 
 # range-v3 forward-declares std containers using a libc++ macro that Xcode 26 removed; it offers this opt-out.
 target_compile_definitions(${PROJECT_NAME} INTERFACE META_NO_STD_FORWARD_DECLARATIONS)

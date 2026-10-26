@@ -63,7 +63,7 @@ int main()
                 // Step 2: Connect to the device.
                 //         The returned device object can be used to write/disconnect from the device later on.
                 device = adapter.connect(vt, genki::BleDevice::Callbacks{
-                                                     .valueChanged          = [](const juce::Uuid&, gsl::span<const gsl::byte>) {},
+                                                     .valueChanged          = [](const juce::Uuid&, std::span<const std::byte>) {},
                                                      .characteristicWritten = [](const juce::Uuid, bool) {},
                                              });
 

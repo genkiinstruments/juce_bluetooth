@@ -17,7 +17,6 @@ target_link_libraries(${PROJECT_NAME}
         genki::bluetooth
 
         PUBLIC
-        GSL
         fmt
         range-v3
 

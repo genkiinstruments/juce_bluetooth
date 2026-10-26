@@ -13,8 +13,9 @@
 #include "org-bluez-GattDescriptor1.h"
 #include "org-bluez-GattService1.h"
 
-#include <gsl/span>
+#include <cstddef>
 #include <range/v3/view.hpp>
+#include <span>
 
 #include "format.h"
 #include "native/linux/bluez_utils.h"
@@ -120,7 +121,7 @@ struct BleAdapter::Impl : private juce::ValueTree::Listener
         }
     }
 
-    void writeCharacteristic(const BleDevice& device, const juce::Uuid& charactUuid, gsl::span<const gsl::byte> data, bool withResponse)
+    void writeCharacteristic(const BleDevice& device, const juce::Uuid& charactUuid, std::span<const std::byte> data, bool withResponse)
     {
         const auto addr = device.state.getProperty(ID::address).toString();
 
@@ -181,7 +182,7 @@ struct BleAdapter::Impl : private juce::ValueTree::Listener
                         g_error_free(error);
                     }
 
-                    GVariant* arg_value = g_variant_new_fixed_array(G_VARIANT_TYPE_BYTE, data.data(), data.size(), sizeof(gsl::byte));
+                    GVariant* arg_value = g_variant_new_fixed_array(G_VARIANT_TYPE_BYTE, data.data(), data.size(), sizeof(std::byte));
 
                     GVariantBuilder builder{};
                     g_variant_builder_init(&builder, G_VARIANT_TYPE("a{sv}"));
@@ -285,7 +286,7 @@ struct BleAdapter::Impl : private juce::ValueTree::Listener
         }
     }
 
-    void characteristicValueChanged(std::string_view object_path, gsl::span<const gsl::byte> data)
+    void characteristicValueChanged(std::string_view object_path, std::span<const std::byte> data)
     {
         const auto it = std::find_if(characteristicCache.begin(), characteristicCache.end(), [&](const auto& ent)
                                      { return ent.dbusObjectPath.compare(object_path.data()) == 0; });
@@ -627,7 +628,7 @@ struct BleAdapter::Impl : private juce::ValueTree::Listener
 
                         characteristicValueChanged(
                                 std::string_view(proxy_object_path),
-                                gsl::as_bytes(gsl::span(data, static_cast<size_t>(data_len))));
+                                std::as_bytes(std::span(data, static_cast<size_t>(data_len))));
                     }
                 }
 
@@ -859,7 +860,7 @@ size_t BleAdapter::getMaximumValueLength(const BleDevice&)
 }
 
 //======================================================================================================================
-void BleDevice::write(BleAdapter& adapter, const Uuid& uuid, gsl::span<const gsl::byte> data, bool withResponse)
+void BleDevice::write(BleAdapter& adapter, const Uuid& uuid, std::span<const std::byte> data, bool withResponse)
 {
     adapter.impl->writeCharacteristic(*this, uuid, data, withResponse);
 }

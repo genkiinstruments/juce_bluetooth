@@ -1,6 +1,6 @@
 #pragma once
 
-#include <gsl/byte>
+#include <cstddef>
 #include <juce_data_structures/juce_data_structures.h>
 
 #if _WIN32
@@ -63,12 +63,12 @@ struct fmt::formatter<juce::Identifier>
 };
 
 template<>
-struct fmt::formatter<const gsl::byte>
+struct fmt::formatter<const std::byte>
 {
     constexpr auto parse(fmt::format_parse_context& ctx) -> decltype(ctx.begin()) { return ctx.begin(); }
 
     template<typename FormatContext>
-    auto format(const gsl::byte& byte, FormatContext& ctx) const -> decltype(ctx.out())
+    auto format(const std::byte& byte, FormatContext& ctx) const -> decltype(ctx.out())
     {
         return fmt::format_to(ctx.out(), "{:02x}", static_cast<const unsigned char>(byte));
     }

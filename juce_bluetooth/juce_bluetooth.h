@@ -9,7 +9,7 @@
 
   ID:                 juce_bluetooth
   vendor:             Genki
-  version:            1.1.1
+  version:            2.0.0
   name:               JUCE Bluetooth LE
   description:        Bluetooth LE classes for JUCE
 
@@ -17,7 +17,7 @@
   OSXFrameworks: CoreBluetooth Foundation
   windowsLibs: windowsapp
   linuxLibs: bluetooth, glib-2.0
-  minimumCppStandard: 17
+  minimumCppStandard: 20
   searchpaths: include
 
  END_JUCE_MODULE_DECLARATION
@@ -29,7 +29,8 @@
 #include <juce_core/juce_core.h>
 #include <juce_data_structures/juce_data_structures.h>
 
-#include <gsl/span>
+#include <cstddef>
+#include <span>
 
 #include "include/identifiers.h"
 #include "include/message.h"
@@ -44,7 +45,7 @@ struct BleDevice
 {
     struct Callbacks
     {
-        std::function<void(const juce::Uuid&, gsl::span<const gsl::byte>)> valueChanged;
+        std::function<void(const juce::Uuid&, std::span<const std::byte>)> valueChanged;
         std::function<void(const juce::Uuid&, bool)>                       characteristicWritten;
     };
 
@@ -52,7 +53,7 @@ struct BleDevice
 
     explicit BleDevice(juce::ValueTree vt) : state(std::move(vt)) {}
 
-    void write(BleAdapter&, const juce::Uuid& charact, gsl::span<const gsl::byte> data, bool withResponse = true);
+    void write(BleAdapter&, const juce::Uuid& charact, std::span<const std::byte> data, bool withResponse = true);
 
     //==================================================================================================================
     juce::ValueTree state{};
